@@ -144,7 +144,7 @@ func newGameFromDeck(playerNames []string, deck []Card, rng rand.Source) (*Game,
 }
 
 // playerID maps a seat index to a stable player identifier.
-func playerID(i int) string { return fmt.Sprintf("p%03d", i) }
+func playerID(i int) string { return fmt.Sprintf("p%d", i) }
 
 // shuffle performs an in-place Fisher-Yates shuffle using the injected RNG.
 func shuffle(deck []Card, src rand.Source) {

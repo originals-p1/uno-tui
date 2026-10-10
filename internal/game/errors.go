@@ -12,6 +12,16 @@ const (
 	ErrCodeInvalidPlayerCount  ErrorCode = "ERR_INVALID_PLAYER_COUNT"
 	ErrCodeInvalidArgument     ErrorCode = "ERR_INVALID_ARGUMENT"
 	ErrCodeEmptyDeck           ErrorCode = "ERR_EMPTY_DECK"
+	ErrCodeInvalidPlayer       ErrorCode = "ERR_INVALID_PLAYER"
+	ErrCodeNotYourTurn         ErrorCode = "NOT_YOUR_TURN"
+	ErrCodeCardNotOwned        ErrorCode = "CARD_NOT_OWNED"
+	ErrCodeCardNotPlayable     ErrorCode = "CARD_NOT_PLAYABLE"
+	ErrCodeInvalidPhase        ErrorCode = "INVALID_PHASE"
+	ErrCodeInvalidColor        ErrorCode = "INVALID_COLOR"
+	ErrCodeGameFinished        ErrorCode = "ERR_GAME_FINISHED"
+	ErrCodeWildDrawFourInvalid ErrorCode = "WILD_DRAW_FOUR_NOT_ALLOWED"
+	ErrCodeNoDrawnCard         ErrorCode = "NO_DRAWN_CARD"
+	ErrCodeCardNotDrawn        ErrorCode = "CARD_NOT_DRAWN"
 )
 
 // GameError is a stable, typed engine error carrying a machine-readable code
@@ -24,5 +34,10 @@ type GameError struct {
 func (e *GameError) Error() string { return string(e.Code) + ": " + e.Message }
 
 func newErr(code ErrorCode, format string, args ...interface{}) *GameError {
+	return &GameError{Code: code, Message: fmt.Sprintf(format, args...)}
+}
+
+// gErr constructs a stable *GameError from a code and format message.
+func gErr(code ErrorCode, format string, args ...interface{}) *GameError {
 	return &GameError{Code: code, Message: fmt.Sprintf(format, args...)}
 }
