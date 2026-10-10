@@ -63,6 +63,38 @@ func TestView_Lobby(t *testing.T) {
 	}
 }
 
+func TestView_LobbySnapshotShowsPlayersAndNoTopcard(t *testing.T) {
+	// A lobby snapshot has players but no top card / hand. Rendering it must not
+	// panic on the empty TopCard (regression for #index-range in cardText) and
+	// must show the player roster.
+	lo := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseLobby)
+		v.CurrentPlayer = ""
+		v.TopCard = game.CardView{}
+		v.YourHand = nil
+		v.PlayableIDs = nil
+		v.Players = []game.PlayerView{
+			{ID: "p0", Name: "Alice", Ready: true, IsHost: true, Connected: true},
+			{ID: "p1", Name: "Bob", Ready: false, Connected: true},
+		}
+	})
+	m := newModel("p1")
+	nm, _ := m.Update(SnapshotMsg{View: lo})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "Players:") {
+		t.Fatalf("lobby snapshot missing Players roster: %q", out)
+	}
+	if !strings.Contains(out, "Alice") || !strings.Contains(out, "Bob") {
+		t.Fatalf("lobby roster missing players: %q", out)
+	}
+	if !strings.Contains(out, "(you)") {
+		t.Fatalf("lobby roster missing (you) marker: %q", out)
+	}
+	if strings.Contains(out, "Your hand") {
+		t.Fatalf("lobby should not render a hand: %q", out)
+	}
+}
+
 func TestView_TurnRedTwoAndStableOrder(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: testSnap()})

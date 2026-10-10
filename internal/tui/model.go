@@ -59,6 +59,9 @@ func (m Model) mode() Mode {
 	if s == nil {
 		return ModeLobby
 	}
+	if s.Phase == string(game.PhaseLobby) {
+		return ModeLobby
+	}
 	if s.WinnerPlayerID != "" || s.Phase == string(game.PhaseFinished) {
 		return ModeFinished
 	}

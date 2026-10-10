@@ -54,6 +54,8 @@ func (m Model) renderBody(o RenderOpts) string {
 		return renderEmptyLobby(m, o)
 	}
 	switch m.mode() {
+	case ModeLobby:
+		return m.renderLobby(o)
 	case ModePaused:
 		return m.renderPaused(o)
 	case ModeFinished:
@@ -71,6 +73,22 @@ func renderEmptyLobby(m Model, o RenderOpts) string {
 	var b strings.Builder
 	b.WriteString("Waiting to join…\n")
 	b.WriteString("  (r) ready/sit   (s) start (host)   (l) leave   (h) help\n")
+	return b.String()
+}
+
+// renderLobby shows the player roster plus ready/start actions while a game has
+// not begun. The lobby snapshot carries no top card or hand, so it is rendered
+// separately from the game view.
+func (m Model) renderLobby(o RenderOpts) string {
+	var b strings.Builder
+	b.WriteString("Players:\n")
+	if m.Snap != nil {
+		for _, p := range m.Snap.Players {
+			b.WriteString("  " + playerLine(m, p, o) + "\n")
+		}
+	}
+	b.WriteString("\nWaiting for players to be ready…\n")
+	b.WriteString("  (r) ready   (s) start (host)   (l) leave\n")
 	return b.String()
 }
 

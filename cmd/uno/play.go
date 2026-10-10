@@ -24,12 +24,13 @@ func newAppModel(c *client.Client, name string) appModel {
 	return appModel{tui: tm, c: c}
 }
 
-// Init satisfies tea.Model and starts pumping client snapshots.
+// Init satisfies tea.Model. It emits the snapshot already received during the
+// handshake (Connect consumed the Welcome snapshot before OnSnapshot was wired
+// up), so the lobby is rendered immediately instead of starting blank.
 func (m appModel) Init() tea.Cmd {
-	go func() {
-		// The snapshots arrive via the client callbacks set by the caller
-		// (they send into the program); nothing to spin up here.
-	}()
+	if s := m.c.Snapshot(); s != nil {
+		return func() tea.Msg { return tui.SnapshotMsg{View: s} }
+	}
 	return nil
 }
 
