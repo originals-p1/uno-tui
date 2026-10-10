@@ -69,6 +69,7 @@ type Client struct {
 	OnEvent      func(typ string, rev uint64)
 	OnError      func(code, message string)
 	OnDisconnect func(err error)
+	OnConfig func(protocol.ConfigSnapshot)
 }
 
 // NewClient returns a client with the given config.
@@ -243,6 +244,10 @@ func (c *Client) SendAction(a game.Action, expected uint64) (*Response, error) {
 		payload = protocol.PlayDrawnCard{ChosenColor: colorPtr(a.ChosenColor)}
 	case game.ActionPassDrawn:
 		typ = protocol.TypePassDrawnCard
+	case game.ActionAcceptFour:
+		typ = protocol.TypeAcceptFour
+	case game.ActionChallengeFour:
+		typ = protocol.TypeChallengeFour
 	default:
 		return nil, errors.New("unsupported action")
 	}
@@ -265,6 +270,16 @@ func (c *Client) Ready(value bool, expected uint64) (*Response, error) {
 // StartGame requests the host to start the game.
 func (c *Client) StartGame(expected uint64) (*Response, error) {
 	return c.Send(protocol.TypeStartGame, &expected, protocol.StartGame{})
+}
+
+// UpdateConfig submits a full new room configuration as the host. The
+// configVersion must match the server's current version (optimistic
+// concurrency); on a mismatch the server replies CONFIG_STALE.
+func (c *Client) UpdateConfig(cfg game.Config, configVersion, expected uint64) (*Response, error) {
+	return c.Send(protocol.TypeUpdateConfig, &expected, protocol.UpdateConfig{
+		ExpectedConfigVersion: configVersion,
+		Config:                cfg,
+	})
 }
 
 // Leave requests to leave the room.
@@ -360,6 +375,16 @@ func (c *Client) handle(msg *protocol.Message, payload interface{}) {
 		v := &game.GameView{}
 		if jsonUnmarshal(msg.Payload, v) == nil {
 			c.applySnapshot(v)
+		}
+	case protocol.TypeConfigSnapshot:
+		snap := protocol.ConfigSnapshot{}
+		if jsonUnmarshal(msg.Payload, &snap) == nil && c.OnConfig != nil {
+			c.OnConfig(snap)
+		}
+	case protocol.TypeRulesLocked:
+		rl := protocol.RulesLocked{}
+		if jsonUnmarshal(msg.Payload, &rl) == nil && c.OnConfig != nil {
+			c.OnConfig(protocol.ConfigSnapshot{Config: rl.Config, ConfigVersion: rl.ConfigVersion, Locked: true})
 		}
 	case protocol.TypeGameEvent:
 		if typ, _, err := protocol.ParseGameEvent(msg); err == nil && c.OnEvent != nil {

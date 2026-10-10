@@ -116,6 +116,8 @@ func autoPlay(ctx context.Context, c *client.Client, stop func() bool) {
 			if snap.DrawDecision != nil {
 				_, _ = c.SendAction(game.Action{Type: game.ActionPassDrawn}, rev)
 			}
+		case string(game.PhaseChallenge):
+			_, _ = c.SendAction(game.Action{Type: game.ActionAcceptFour}, rev)
 		default:
 			if len(snap.PlayableIDs) > 0 {
 				id := snap.PlayableIDs[0]

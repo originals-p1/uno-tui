@@ -4,16 +4,19 @@ package game
 type EventType string
 
 const (
-	EventTurnStarted       EventType = "TURN_STARTED"
-	EventCardPlayed        EventType = "CARD_PLAYED"
-	EventCardDrawn         EventType = "CARD_DRAWN"
-	EventUNOCalled         EventType = "UNO_CALLED"
-	EventWinner            EventType = "WINNER"
-	EventGameEnded         EventType = "GAME_ENDED"
-	EventSkipped           EventType = "PLAYER_SKIPPED"
-	EventDirectionReversed EventType = "DIRECTION_REVERSED"
-	EventDiscardToDraw     EventType = "DISCARD_RECYCLED"
-	EventDrawDecision      EventType = "DRAW_DECISION"
+	EventTurnStarted        EventType = "TURN_STARTED"
+	EventCardPlayed         EventType = "CARD_PLAYED"
+	EventCardDrawn          EventType = "CARD_DRAWN"
+	EventUNOCalled          EventType = "UNO_CALLED"
+	EventWinner             EventType = "WINNER"
+	EventGameEnded          EventType = "GAME_ENDED"
+	EventSkipped            EventType = "PLAYER_SKIPPED"
+	EventDirectionReversed  EventType = "DIRECTION_REVERSED"
+	EventDiscardToDraw      EventType = "DISCARD_RECYCLED"
+	EventDrawDecision       EventType = "DRAW_DECISION"
+	EventChallenge          EventType = "FOUR_CHALLENGE"
+	EventChallengeSucceeded EventType = "CHALLENGE_SUCCEEDED"
+	EventChallengeFailed    EventType = "CHALLENGE_FAILED"
 )
 
 // Event is a public, privacy-safe game event. It never contains another

@@ -224,3 +224,66 @@ func TestDecode_ServerMessages(t *testing.T) {
 		t.Fatalf("snapshot rev=%d, want 9", v.RoomRevision)
 	}
 }
+
+func TestDecode_ConfigSyncMessages(t *testing.T) {
+	// config_snapshot
+	cs := ConfigSnapshot{Config: game.DefaultConfig(), ConfigVersion: 3, Locked: true}
+	em, err := EncodeConfigSnapshot(cs)
+	if err != nil {
+		t.Fatalf("encode config snapshot: %v", err)
+	}
+	rawb, _ := Marshal(em)
+	m, payload, err := Decode(rawb)
+	if err != nil {
+		t.Fatalf("config_snapshot decode: %v", err)
+	}
+	if m.Type != TypeConfigSnapshot {
+		t.Fatalf("type=%q", m.Type)
+	}
+	if got := payload.(*ConfigSnapshot); got.ConfigVersion != 3 || !got.Locked ||
+		got.Config.Game.InitialHandSize != 7 {
+		t.Fatalf("config snapshot payload: %+v", got)
+	}
+
+	// rules_locked
+	rl := RulesLocked{Config: game.DefaultConfig(), ConfigVersion: 3}
+	em, err = EncodeRulesLocked(rl)
+	if err != nil {
+		t.Fatalf("encode rules_locked: %v", err)
+	}
+	rawb, _ = Marshal(em)
+	_, payload, err = Decode(rawb)
+	if err != nil {
+		t.Fatalf("rules_locked decode: %v", err)
+	}
+	if got := payload.(*RulesLocked); got.ConfigVersion != 3 {
+		t.Fatalf("rules_locked payload: %+v", got)
+	}
+
+	// update_config (valid)
+	nc := game.DefaultConfig()
+	nc.Game.InitialHandSize = 5
+	raw := `{"protocol_version":1,"type":"update_config","request_id":"r9","expected_revision":4,
+		"payload":{"expected_config_version":2,"config":` + mustJSONStr(nc) + `}}`
+	_, payload, err = Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("update_config decode: %v", err)
+	}
+	if uc := payload.(*UpdateConfig); uc.ExpectedConfigVersion != 2 || uc.Config.Game.InitialHandSize != 5 {
+		t.Fatalf("update_config payload: %+v", uc)
+	}
+
+	// update_config with an invalid config must be rejected at the protocol gate.
+	bad := game.DefaultConfig()
+	bad.Room.MaxPlayers = 9
+	raw = `{"protocol_version":1,"type":"update_config","request_id":"r10","expected_revision":4,
+		"payload":{"expected_config_version":2,"config":` + mustJSONStr(bad) + `}}`
+	if _, _, err := Decode([]byte(raw)); err == nil {
+		t.Fatal("invalid update_config should be rejected")
+	}
+}
+
+func mustJSONStr(v interface{}) string {
+	b, _ := json.Marshal(v)
+	return string(b)
+}

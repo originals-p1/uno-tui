@@ -13,6 +13,7 @@ const (
 	PhaseLobby         Phase = "lobby"
 	PhaseTurn          Phase = "turn"
 	PhaseDrawnDecision Phase = "drawn_decision"
+	PhaseChallenge     Phase = "challenge"
 	PhasePaused        Phase = "paused"
 	PhaseFinished      Phase = "finished"
 )
@@ -67,6 +68,7 @@ type Game struct {
 	PreviousPhase  Phase
 
 	RoomRevision uint64      // authoritative room revision (owned by the room loop)
+	Config       Config      // room rule configuration (frozen on start, rule.md §13)
 	rng          rand.Source // injected RNG (never nil after Start)
 	eventSeq     uint64
 	history      []GameEvent
@@ -74,6 +76,14 @@ type Game struct {
 	// Paused metadata, populated by the room on disconnect.
 	disconnectedIDs  []string
 	earliestDeadline string
+
+	// Challenge state (rule.md R13), populated when a Wild Draw Four is played
+	// with challenges enabled and awaiting the target's accept/decline.
+	challengeViolated bool // resolver held the active color at play time
+	challengeResolver string
+	// pendingWinPlayerID defers a +4 resolver's win until the challenge settles
+	// (rule.md R27 / §16 last-card +4 edge).
+	pendingWinPlayerID string
 }
 
 // NewGame builds a fresh game from the standard 108-card deck, dealing opening
@@ -89,34 +99,55 @@ func NewGame(playerNames []string, rng rand.Source) (*Game, error) {
 // registry, and per-player views all reference one consistent identity
 // (readme §3.6 stable player identity).
 func NewGameWithIDs(playerNames, playerIDs []string, rng rand.Source) (*Game, error) {
-	if len(playerIDs) != len(playerNames) {
-		return nil, newErr(ErrCodeInvalidArgument, "player_ids length %d != names length %d", len(playerIDs), len(playerNames))
+	return NewGameWithConfig(playerNames, playerIDs, DefaultConfig(), rng)
+}
+
+// NewGameWithConfig builds a fresh game from the standard 108-card deck using
+// the supplied room rule configuration (rule.md §0.2). It applies the config's
+// initial hand size, direction and first-player selection, and freezes the
+// config onto the game so rules are config-driven, never hardcoded.
+func NewGameWithConfig(playerNames, playerIDs []string, cfg Config, rng rand.Source) (*Game, error) {
+	if err := cfg.Validate(); err != nil {
+		return nil, newErr(ErrCodeInvalidConfig, "%v", err)
 	}
-	seen := map[string]bool{}
-	for _, id := range playerIDs {
-		if id == "" {
-			return nil, newErr(ErrCodeInvalidArgument, "empty player id")
+	if playerIDs != nil {
+		if len(playerIDs) != len(playerNames) {
+			return nil, newErr(ErrCodeInvalidArgument, "player_ids length %d != names length %d", len(playerIDs), len(playerNames))
 		}
-		if seen[id] {
-			return nil, newErr(ErrCodeInvalidArgument, "duplicate player id %q", id)
+		seen := map[string]bool{}
+		for _, id := range playerIDs {
+			if id == "" {
+				return nil, newErr(ErrCodeInvalidArgument, "empty player id")
+			}
+			if seen[id] {
+				return nil, newErr(ErrCodeInvalidArgument, "duplicate player id %q", id)
+			}
+			seen[id] = true
 		}
-		seen[id] = true
 	}
-	return newGameFromDeckIDs(playerNames, playerIDs, StandardDeck(), rng)
+	return newGameFromDeckIDs(playerNames, playerIDs, StandardDeck(), cfg, rng)
 }
 
 // newGameFromDeck is the testable core of NewGame: it builds the game from an
 // arbitrary deck, which lets tests exercise the "no initial number card" path.
+// It uses the default (classic) config.
 func newGameFromDeck(playerNames []string, deck []Card, rng rand.Source) (*Game, error) {
-	return newGameFromDeckIDs(playerNames, nil, deck, rng)
+	return newGameFromDeckIDs(playerNames, nil, deck, DefaultConfig(), rng)
 }
 
-func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, rng rand.Source) (*Game, error) {
+func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, cfg Config, rng rand.Source) (*Game, error) {
 	if rng == nil {
 		return nil, newErr(ErrCodeInvalidArgument, "rng must not be nil")
 	}
+	handSize := cfg.Game.InitialHandSize
+	if handSize == 0 {
+		handSize = 7
+	}
 	if len(playerNames) < MinPlayers || len(playerNames) > MaxPlayers {
 		return nil, newErr(ErrCodeInvalidPlayerCount, "player count %d outside [%d,%d]", len(playerNames), MinPlayers, MaxPlayers)
+	}
+	if cfg.Room.MaxPlayers != 0 && len(playerNames) > cfg.Room.MaxPlayers {
+		return nil, newErr(ErrCodeInvalidPlayerCount, "player count %d exceeds max_players %d", len(playerNames), cfg.Room.MaxPlayers)
 	}
 
 	// Work on local copies so an error leaves the receiver unchanged.
@@ -125,7 +156,7 @@ func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, rng rand.S
 	shuffle(draw, rng)
 
 	// The deck must hold all opening hands plus at least one possible top card.
-	if len(draw) < len(playerNames)*CardsPerPlayer+1 {
+	if len(draw) < len(playerNames)*handSize+1 {
 		return nil, newErr(ErrCodeEmptyDeck, "deck too small: %d cards for %d players", len(draw), len(playerNames))
 	}
 
@@ -138,12 +169,12 @@ func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, rng rand.S
 		players = append(players, Player{
 			ID:        id,
 			Name:      sanitizeName(nm),
-			Hand:      make([]Card, 0, CardsPerPlayer+1),
+			Hand:      make([]Card, 0, handSize+1),
 			Connected: true,
 		})
 	}
 	// Deal opening hands.
-	for i := 0; i < CardsPerPlayer; i++ {
+	for i := 0; i < handSize; i++ {
 		for j := range players {
 			players[j].Hand = append(players[j].Hand, draw[0])
 			draw = draw[1:]
@@ -168,17 +199,44 @@ func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, rng rand.S
 	shuffle(prefix, rng) // reshuffle skipped action cards back into the pile
 	draw = append(append([]Card{}, prefix...), rest...)
 
+	dir := 1
+	switch cfg.Game.InitialDir {
+	case DirCounterClockwise:
+		dir = -1
+	case DirClockwise:
+		dir = 1
+	case DirRandom:
+		if rand.New(rng).Intn(2) == 0 {
+			dir = -1
+		}
+	}
+
+	// First player selection (rule.md R04). Dealer is seat 0 and play proceeds
+	// from the next seat in the initial direction.
 	g := &Game{
 		Players:      players,
 		DrawPile:     draw,
 		DiscardPile:  []Card{top},
-		CurrentIndex: 0,
-		Direction:    1,
+		CurrentIndex: resolveFirstIndex(cfg.Game.FirstPlayerMode, len(players), rng),
+		Direction:    dir,
 		ActiveColor:  top.Color,
 		Phase:        PhaseTurn,
+		Config:       cfg,
 		rng:          rng,
 	}
 	return g, nil
+}
+
+// resolveFirstIndex picks the opening current-player seat per R04.
+func resolveFirstIndex(mode string, n int, rng rand.Source) int {
+	switch mode {
+	case FirstRandom:
+		return rand.New(rng).Intn(n)
+	case FirstHost:
+		return 0
+	default: // FirstAfterDealer: dealer is seat 0, next seat plays first
+		return 1 % n
+	}
 }
 
 // playerID maps a seat index to a stable player identifier.

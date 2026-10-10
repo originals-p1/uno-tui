@@ -4,10 +4,12 @@ package game
 type ActionType string
 
 const (
-	ActionPlayCard  ActionType = "play_card"  // discard a chosen hand card
-	ActionDrawCard  ActionType = "draw_card"  // draw one card
-	ActionPlayDrawn ActionType = "play_drawn" // play the just-drawn card
-	ActionPassDrawn ActionType = "pass_drawn" // keep the drew card and end turn
+	ActionPlayCard      ActionType = "play_card"      // discard a chosen hand card
+	ActionDrawCard      ActionType = "draw_card"      // draw one card
+	ActionPlayDrawn     ActionType = "play_drawn"     // play the just-drawn card
+	ActionPassDrawn     ActionType = "pass_drawn"     // keep the drew card and end turn
+	ActionAcceptFour    ActionType = "accept_four"    // +4 challenge: accept the +4 penalty (R13)
+	ActionChallengeFour ActionType = "challenge_four" // +4 challenge: challenge the +4 player (R13)
 )
 
 // PlayCardAction carries a play_card request. ChosenColor is required for Wild

@@ -2,6 +2,7 @@ package server
 
 import (
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"sync"
@@ -203,7 +204,10 @@ func (s *Server) handleMessage(cs *connState, msg *protocol.Message, payload int
 		return true
 	case protocol.TypeReady, protocol.TypeStartGame, protocol.TypeLeave:
 		return s.handleRoomAction(cs, msg, payload)
-	case protocol.TypePlayCard, protocol.TypeDrawCard, protocol.TypePlayDrawnCard, protocol.TypePassDrawnCard:
+	case protocol.TypePlayCard, protocol.TypeDrawCard, protocol.TypePlayDrawnCard, protocol.TypePassDrawnCard,
+		protocol.TypeAcceptFour, protocol.TypeChallengeFour:
+		return s.handleRoomAction(cs, msg, payload)
+	case protocol.TypeUpdateConfig:
 		return s.handleRoomAction(cs, msg, payload)
 	default:
 		s.replyError(cs, "", false)
@@ -242,6 +246,12 @@ func (s *Server) handleHello(cs *connState, msg *protocol.Message, h *protocol.H
 		s.failConn(cs)
 		return false
 	}
+	// Relay the current authoritative rules to the new player (rule.md §0.5).
+	cfg, ver, locked := s.room.ConfigState()
+	if !s.sendConfigSnapshot(cs, protocol.ConfigSnapshot{Config: cfg, ConfigVersion: ver, Locked: locked}) {
+		s.failConn(cs)
+		return false
+	}
 	return true
 }
 
@@ -258,6 +268,11 @@ func (s *Server) handleRoomAction(cs *connState, msg *protocol.Message, payload 
 	out := s.room.Submit(req)
 	if out.ErrCode != "" {
 		s.replyErrCode(cs, msg.RequestID, out.ErrCode, out.Message)
+		// On a stale-config rejection the server also relays the current config
+		// so the host can resend (rule.md §0.5 optimistic concurrency).
+		if out.ErrCode == CodeConfigStale && out.ConfigSnapshot != nil {
+			s.sendConfigSnapshot(cs, *out.ConfigSnapshot)
+		}
 		return true
 	}
 	// Success: respond to requester, broadcast personalized snapshots.
@@ -268,6 +283,13 @@ func (s *Server) handleRoomAction(cs *connState, msg *protocol.Message, payload 
 		s.broadcast(cs, out.Commit)
 	} else if out.WelcomeView != nil {
 		s.sendSnapshot(cs, out.WelcomeView)
+	}
+	// Relay config changes / rule locking to everyone.
+	if out.ConfigChanged && out.ConfigSnapshot != nil {
+		s.broadcastConfigSnapshot(cs, *out.ConfigSnapshot)
+	}
+	if out.RulesLocked && out.ConfigSnapshot != nil {
+		s.broadcastRulesLocked(cs, *out.ConfigSnapshot)
 	}
 	return true
 }
@@ -302,6 +324,14 @@ func (s *Server) buildRequest(cs *connState, msg *protocol.Message, payload inte
 		return &Request{Kind: KindPlayDrawnCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: a}
 	case protocol.TypePassDrawnCard:
 		return &Request{Kind: KindPassDrawnCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionPassDrawn}}
+	case protocol.TypeAcceptFour:
+		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionAcceptFour}}
+	case protocol.TypeChallengeFour:
+		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionChallengeFour}}
+	case protocol.TypeUpdateConfig:
+		p := payload.(*protocol.UpdateConfig)
+		return &Request{Kind: KindUpdateConfig, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision,
+			ConfigUpdate: &ConfigUpdateReq{ExpectedConfigVersion: p.ExpectedConfigVersion, Config: p.Config}}
 	}
 	return nil
 }
@@ -351,6 +381,53 @@ func (s *Server) sendSnapshot(cs *connState, view *game.GameView) bool {
 		return true
 	}
 	return cs.sendStrict(m)
+}
+
+// sendConfigSnapshot delivers a CONFIG_SNAPSHOT to one connection.
+func (s *Server) sendConfigSnapshot(cs *connState, snap protocol.ConfigSnapshot) bool {
+	m, err := protocol.EncodeConfigSnapshot(snap)
+	if err != nil {
+		return true
+	}
+	return cs.sendStrict(m)
+}
+
+// broadcastControl pushes one CONFIG_SNAPSHOT / RULES_LOCKED to every player.
+func (s *Server) broadcastControl(from *connState, typ string, snap protocol.ConfigSnapshot) {
+	m, err := s.encodeControl(typ, snap)
+	if err != nil {
+		return
+	}
+	s.mu.Lock()
+	conns := map[string]*connState{}
+	for pid, c := range s.players {
+		conns[pid] = c
+	}
+	s.mu.Unlock()
+	for _, c := range conns {
+		if !c.sendStrict(m) {
+			s.failConn(c)
+		}
+	}
+}
+
+func (s *Server) encodeControl(typ string, snap protocol.ConfigSnapshot) (*protocol.Message, error) {
+	switch typ {
+	case protocol.TypeConfigSnapshot:
+		return protocol.EncodeConfigSnapshot(snap)
+	case protocol.TypeRulesLocked:
+		return protocol.EncodeRulesLocked(protocol.RulesLocked{Config: snap.Config, ConfigVersion: snap.ConfigVersion})
+	default:
+		return nil, fmt.Errorf("unknown control type %q", typ)
+	}
+}
+
+func (s *Server) broadcastConfigSnapshot(from *connState, snap protocol.ConfigSnapshot) {
+	s.broadcastControl(from, protocol.TypeConfigSnapshot, snap)
+}
+
+func (s *Server) broadcastRulesLocked(from *connState, snap protocol.ConfigSnapshot) {
+	s.broadcastControl(from, protocol.TypeRulesLocked, snap)
 }
 
 func (s *Server) replyError(cs *connState, requestID string, drop bool) {

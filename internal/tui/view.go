@@ -64,6 +64,10 @@ func (m Model) renderBody(o RenderOpts) string {
 		return m.renderColorPanel(o)
 	case ModeDrawnDecision:
 		return m.renderDrawDecision(o)
+	case ModeChallenge:
+		return m.renderChallenge(o)
+	case ModeRules:
+		return m.renderRules(o)
 	default:
 		return m.renderGame(o)
 	}
@@ -173,6 +177,75 @@ func (m Model) renderDrawDecision(o RenderOpts) string {
 	return b.String()
 }
 
+func (m Model) renderChallenge(o RenderOpts) string {
+	var b strings.Builder
+	resolver := "(未知)"
+	if m.Snap != nil && m.Snap.Challenge != nil && m.Snap.Challenge.ResolverPlayerID != "" {
+		resolver = m.displayName(m.Snap.Challenge.ResolverPlayerID)
+	}
+	b.WriteString("对手 " + resolver + " 打出了 +4\n")
+	b.WriteString("你被罚摸 4 张牌。你怀疑他之前出过 +4 吗？\n\n")
+	b.WriteString("  (c) 挑战 —— 若对方违规，他摸 4 张；若没有，你摸 6 张\n")
+	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
+	return b.String()
+}
+
+func (m Model) renderRules(o RenderOpts) string {
+	var b strings.Builder
+	b.WriteString("当前规则：\n")
+	if m.Config == nil {
+		b.WriteString("  （尚无配置）\n")
+		return b.String()
+	}
+	c := m.Config
+	b.WriteString(fmt.Sprintf("  版本：v%d%s\n", m.ConfigVersion, lockSuffix(m.RulesLocked)))
+	b.WriteString(fmt.Sprintf("  初始手牌：%d 张\n", c.Game.InitialHandSize))
+	b.WriteString(fmt.Sprintf("  初始方向：%s\n", dirNameZh(c.Game.InitialDir)))
+	b.WriteString(fmt.Sprintf("  先手：%s\n", firstPlayerZh(c.Game.FirstPlayerMode)))
+	b.WriteString("  牌组：经典 108 张\n")
+	b.WriteString(fmt.Sprintf("  万能牌：%s    万能+4：%s\n", onOff(c.Cards.EnableWild), onOff(c.Cards.EnableDrawFour)))
+	b.WriteString(fmt.Sprintf("  +4 挑战：%s    跳牌：%s    反转：%s\n", onOff(c.Cards.ChallengeDrawFour), onOff(c.Cards.EnableSkip), onOff(c.Cards.EnableReverse)))
+	b.WriteString(fmt.Sprintf("  +2：%s    自动 UNO：%s\n", onOff(c.Cards.EnableDrawTwo), onOff(c.HouseRules.AutoUNO)))
+	b.WriteString("\n  (v) 返回\n")
+	return b.String()
+}
+
+func lockSuffix(locked bool) string {
+	if locked {
+		return "（已锁定）"
+	}
+	return ""
+}
+
+func onOff(b bool) string {
+	if b {
+		return "开"
+	}
+	return "关"
+}
+
+func dirNameZh(d string) string {
+	switch d {
+	case game.DirCounterClockwise:
+		return "逆时针"
+	case game.DirRandom:
+		return "随机"
+	default:
+		return "顺时针"
+	}
+}
+
+func firstPlayerZh(m string) string {
+	switch m {
+	case game.FirstRandom:
+		return "随机"
+	case game.FirstHost:
+		return "房主先出"
+	default:
+		return "发牌者之后"
+	}
+}
+
 func (m Model) renderColorPanel(o RenderOpts) string {
 	var b strings.Builder
 	b.WriteString("为万能牌选择颜色：\n\n")
@@ -230,6 +303,10 @@ func (m Model) renderFooter(o RenderOpts) string {
 		return "按键：r/y/g/b=选色 h=帮助 q=退出"
 	case ModeDrawnDecision:
 		return "按键：p=打出该牌 g=保留 h=帮助 q=退出"
+	case ModeChallenge:
+		return "按键：c=挑战 a=接受 h=帮助 q=退出"
+	case ModeRules:
+		return "按键：v=返回 h=帮助 q=退出"
 	case ModePaused:
 		return "按键：h=帮助 q=退出"
 	case ModeFinished:
@@ -259,6 +336,13 @@ func (m Model) renderHelp(o RenderOpts) string {
 
 万能牌选色：
   r/y/g/b 选择 红/黄/绿/蓝
+
+被罚 +4（挑战）：
+  c       挑战对方
+  a       接受并摸 4 张
+
+规则：
+  v       查看当前规则
 
 出牌的合法性均由服务端裁决。`
 }

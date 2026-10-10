@@ -20,6 +20,14 @@ type ErrorMsg struct {
 // HelpMsg toggles the help overlay.
 type HelpMsg struct{}
 
+// ConfigMsg carries the authoritative room rules (rule.md §0.5 CONFIG_SNAPSHOT /
+// RULES_LOCKED). It lets every player view the current rules.
+type ConfigMsg struct {
+	Config        game.Config
+	ConfigVersion uint64
+	Locked        bool
+}
+
 // KeyMsg is a normalized keyboard input ("1".."9", "d", "p", "g", "r", "s",
 // "q", "h", "l", "ctrl_c", …). Keeping keys as strings decouples the model
 // from the terminal decoder and makes hotkeys trivially testable.
@@ -40,6 +48,8 @@ const (
 	ActReady
 	ActStartGame
 	ActLeave
+	ActAcceptFour
+	ActChallengeFour
 )
 
 // ActionMsg is the outcome of a user hotkey: a request for the network layer
@@ -69,6 +79,10 @@ func (k ActionKind) String() string {
 		return "start_game"
 	case ActLeave:
 		return "leave"
+	case ActAcceptFour:
+		return "accept_four"
+	case ActChallengeFour:
+		return "challenge_four"
 	default:
 		return "none"
 	}

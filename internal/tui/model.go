@@ -15,6 +15,8 @@ const (
 	ModeColor
 	ModePaused
 	ModeFinished
+	ModeChallenge
+	ModeRules
 )
 
 // Model is the terminal UNO TUI model. It keeps only public, privacy-safe
@@ -26,6 +28,11 @@ type Model struct {
 
 	Snap *game.GameView
 	help bool
+	rules bool
+
+	Config        *game.Config
+	ConfigVersion uint64
+	RulesLocked   bool
 
 	// picking records a wild card awaiting a color choice (ModeColor).
 	picking CardPick
@@ -59,6 +66,9 @@ func (m Model) mode() Mode {
 	if s == nil {
 		return ModeLobby
 	}
+	if m.rules && m.Config != nil {
+		return ModeRules
+	}
 	if s.Phase == string(game.PhaseLobby) {
 		return ModeLobby
 	}
@@ -71,11 +81,11 @@ func (m Model) mode() Mode {
 	if m.picking.Active {
 		return ModeColor
 	}
+	if s.Challenge != nil && s.CurrentPlayer == m.MyID {
+		return ModeChallenge
+	}
 	if s.DrawDecision != nil && s.CurrentPlayer == m.MyID {
 		return ModeDrawnDecision
-	}
-	if s.CurrentPlayer == m.MyID {
-		return ModeTurn
 	}
 	return ModeTurn
 }

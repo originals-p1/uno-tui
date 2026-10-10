@@ -17,6 +17,9 @@ const (
 	CodeProtocolMismatch   = "PROTOCOL_MISMATCH"
 	CodeMissingRequestID   = "MISSING_REQUEST_ID"
 	CodeMissingExpectedRev = "MISSING_EXPECTED_REVISION"
+	CodeConfigStale        = "CONFIG_STALE"
+	CodeNotWaitingPhase    = "NOT_WAITING_PHASE"
+	CodeNotHost            = "NOT_HOST"
 )
 
 // ProtocolError is a stable, typed protocol failure.
@@ -37,11 +40,16 @@ const (
 	TypeWelcome       = "welcome"
 	TypeReady         = "ready"
 	TypeStartGame     = "start_game"
-	TypePlayCard      = "play_card"
-	TypeDrawCard      = "draw_card"
-	TypePlayDrawnCard = "play_drawn_card"
-	TypePassDrawnCard = "pass_drawn_card"
+	TypePlayCard       = "play_card"
+	TypeDrawCard       = "draw_card"
+	TypePlayDrawnCard  = "play_drawn_card"
+	TypePassDrawnCard  = "pass_drawn_card"
+	TypeAcceptFour     = "accept_four"
+	TypeChallengeFour  = "challenge_four"
 	TypeLeave         = "leave"
+	TypeUpdateConfig  = "update_config"
+	TypeConfigSnapshot = "config_snapshot"
+	TypeRulesLocked   = "rules_locked"
 	TypeStateSnapshot = "state_snapshot"
 	TypeGameEvent     = "game_event"
 	TypeError         = "error"
@@ -107,6 +115,27 @@ type ErrorBody struct {
 // Empty is used for actions with no payload.
 type Empty struct{}
 
+// UpdateConfig is an UPDATE_CONFIG request: the host submits a full new config
+// alongside the config version it believes is current (optimistic concurrency).
+type UpdateConfig struct {
+	ExpectedConfigVersion uint64          `json:"expected_config_version"`
+	Config                game.Config     `json:"config"`
+}
+
+// ConfigSnapshot is a CONFIG_SNAPSHOT server->client message: the current rules
+// and their version, plus whether the rules are locked (game in progress).
+type ConfigSnapshot struct {
+	Config        game.Config `json:"config"`
+	ConfigVersion uint64      `json:"config_version"`
+	Locked        bool        `json:"locked"`
+}
+
+// RulesLocked is a RULES_LOCKED server->client message broadcast at game start.
+type RulesLocked struct {
+	Config        game.Config `json:"config"`
+	ConfigVersion uint64      `json:"config_version"`
+}
+
 // Message is the wire envelope shared by all frames.
 type Message struct {
 	ProtocolVersion  int             `json:"protocol_version"`
@@ -148,7 +177,8 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 		}
 		p, err := decodeObject(m.Payload, func(p *Ready) error { return nil })
 		return &m, p, err
-	case TypeStartGame, TypeDrawCard, TypePassDrawnCard, TypeLeave:
+	case TypeStartGame, TypeDrawCard, TypePassDrawnCard, TypeLeave,
+		TypeAcceptFour, TypeChallengeFour:
 		if err := requireRequestAndRev(&m); err != nil {
 			return nil, nil, err
 		}
@@ -173,6 +203,17 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 		}
 		p, err := decodeObject(m.Payload, func(p *PlayDrawnCard) error { return nil })
 		return &m, p, err
+	case TypeUpdateConfig:
+		if err := requireRequestAndRev(&m); err != nil {
+			return nil, nil, err
+		}
+		p, err := decodeObject(m.Payload, func(p *UpdateConfig) error {
+			if err := p.Config.Validate(); err != nil {
+				return newProto(CodeInvalidMessage, "update_config: invalid config: %v", err)
+			}
+			return nil
+		})
+		return &m, p, err
 	case TypePing, TypePong:
 		if err := requireEmpty(m.Payload); err != nil {
 			return nil, nil, err
@@ -195,6 +236,12 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 			return nil, nil, err
 		}
 		p, err := decodeObject(m.Payload, func(p *ErrorBody) error { return nil })
+		return &m, p, err
+	case TypeConfigSnapshot:
+		p, err := decodeObject(m.Payload, func(p *ConfigSnapshot) error { return nil })
+		return &m, p, err
+	case TypeRulesLocked:
+		p, err := decodeObject(m.Payload, func(p *RulesLocked) error { return nil })
 		return &m, p, err
 	case TypeStateSnapshot:
 		p, err := decodeObject(m.Payload, func(p *game.GameView) error { return nil })
@@ -315,6 +362,28 @@ func EncodeStateSnapshot(roomRevision uint64, view *game.GameView) (*Message, er
 	}
 	m := newBase(TypeStateSnapshot)
 	m.RoomRevision = roomRevision
+	m.Payload = p
+	return m, nil
+}
+
+// EncodeConfigSnapshot builds a CONFIG_SNAPSHOT message.
+func EncodeConfigSnapshot(payload ConfigSnapshot) (*Message, error) {
+	p, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	m := newBase(TypeConfigSnapshot)
+	m.Payload = p
+	return m, nil
+}
+
+// EncodeRulesLocked builds a RULES_LOCKED message.
+func EncodeRulesLocked(payload RulesLocked) (*Message, error) {
+	p, err := json.Marshal(payload)
+	if err != nil {
+		return nil, err
+	}
+	m := newBase(TypeRulesLocked)
 	m.Payload = p
 	return m, nil
 }

@@ -52,6 +52,55 @@ func playableOn(c Card, activeColor Color, topRank Rank) bool {
 	return false
 }
 
+// isPlayable reports whether c can be played by the given hand under the active
+// config (rule.md R06/R11/R12). Wild cards are only playable when wilds are
+// enabled; the strict Wild Draw Four restriction applies only when challenges
+// are disabled.
+func (g *Game) isPlayable(c Card, hand []Card) bool {
+	if IsWild(c.Rank) && !g.Config.Cards.EnableWild {
+		return false
+	}
+	match := playableOn(c, g.ActiveColor, g.topRank())
+	if !match {
+		return false
+	}
+	if c.Rank == RankWildDrawFour && g.strictFour() && hasColor(hand, g.ActiveColor) {
+		return false
+	}
+	return true
+}
+
+// strictFour reports whether the +4 may not be played while holding the active
+// color (only when challenges are disabled, R13 / §0.2).
+func (g *Game) strictFour() bool {
+	return g.Config.Cards.EnableDrawFour && !g.Config.Cards.ChallengeDrawFour
+}
+
+// effectEnabled reports whether an action card produces its effect (R08-R12).
+func (g *Game) effectEnabled(r Rank) bool {
+	switch r {
+	case RankSkip:
+		return g.Config.Cards.EnableSkip
+	case RankReverse:
+		return g.Config.Cards.EnableReverse
+	case RankDrawTwo:
+		return g.Config.Cards.EnableDrawTwo
+	case RankWildDrawFour:
+		return g.Config.Cards.EnableDrawFour
+	default:
+		return true
+	}
+}
+
+// isActionRank reports whether r is a non-number action/wild card (R30).
+func isActionRank(r Rank) bool {
+	switch r {
+	case RankSkip, RankReverse, RankDrawTwo, RankWild, RankWildDrawFour:
+		return true
+	}
+	return false
+}
+
 func hasColor(hand []Card, col Color) bool {
 	for _, c := range hand {
 		if c.Color == col {
@@ -65,14 +114,9 @@ func hasColor(hand []Card, col Color) bool {
 // A Wild Draw Four is only playable when the player holds no card of the
 // active color (readme §3.2).
 func (g *Game) handPlayableIDs(hand []Card) []string {
-	active := g.ActiveColor
-	top := g.topRank()
 	var ids []string
 	for _, c := range hand {
-		if !playableOn(c, active, top) {
-			continue
-		}
-		if c.Rank == RankWildDrawFour && hasColor(hand, active) {
+		if !g.isPlayable(c, hand) {
 			continue
 		}
 		ids = append(ids, c.ID)
@@ -149,6 +193,10 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 			return nil, gErr(ErrCodeInvalidPhase, "no drawn card decision in phase %s", g.Phase)
 		}
 		res, err = g.applyPassDrawn(pi)
+	case ActionAcceptFour:
+		res, err = g.applyAcceptFour(pi)
+	case ActionChallengeFour:
+		res, err = g.applyChallengeFour(pi)
 	default:
 		return nil, gErr(ErrCodeInvalidArgument, "unknown action type %q", a.Type)
 	}
@@ -191,11 +239,20 @@ func (g *Game) applyPlayHandCard(pi int, a Action) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	if !playableOn(card, g.ActiveColor, g.topRank()) {
+	if !g.isPlayable(card, g.Players[pi].Hand) {
+		if card.Rank == RankWildDrawFour && g.strictFour() && hasColor(g.Players[pi].Hand, g.ActiveColor) {
+			return nil, gErr(ErrCodeWildDrawFourInvalid, "wild draw four disallowed: player holds active color")
+		}
 		return nil, gErr(ErrCodeCardNotPlayable, "card %s is not playable", card)
 	}
-	if card.Rank == RankWildDrawFour && hasColor(g.Players[pi].Hand, g.ActiveColor) {
-		return nil, gErr(ErrCodeWildDrawFourInvalid, "wild draw four disallowed: player holds active color")
+	if g.wouldFinishWith(card) {
+		return nil, gErr(ErrCodeActionFinishNotAllowed, "action cards may not finish the round")
+	}
+
+	// Record +4 violation state before the discard changes ActiveColor.
+	if card.Rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour && g.Config.Cards.EnableDrawFour {
+		g.challengeViolated = hasColor(g.Players[pi].Hand, g.ActiveColor)
+		g.challengeResolver = g.Players[pi].ID
 	}
 
 	res := g.discardFromHand(pi, card, chosen)
@@ -204,6 +261,28 @@ func (g *Game) applyPlayHandCard(pi int, a Action) (*Result, error) {
 	}
 	g.applyEffectsAndAdvance(pi, card.Rank, res)
 	return res, nil
+}
+
+// wouldFinishWith reports whether playing card would reduce the current player
+// to zero cards while that is disallowed (rule.md R30).
+func (g *Game) wouldFinishWith(card Card) bool {
+	if g.Config.Cards.AllowActionFinish {
+		return false
+	}
+	pi := g.CurrentIndex
+	if len(g.Players[pi].Hand) != 1 {
+		return false
+	}
+	if !isActionRank(card.Rank) {
+		return false
+	}
+	// The card must be the player's final card.
+	hand := g.Players[pi].Hand
+	cidx := IndexOf(hand, card.ID)
+	if cidx < 0 {
+		return false
+	}
+	return true
 }
 
 // discardFromHand removes card from the player's hand, places it on the
@@ -230,6 +309,12 @@ func (g *Game) discardFromHand(pi int, card Card, chosen *Color) *Result {
 
 	if len(hand) == 0 {
 		g.Players[pi].HasUNO = false
+		// A +4 played as the final card defers the win until the challenge is
+		// settled (rule.md R27 / §16).
+		if card.Rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour && g.Config.Cards.EnableDrawFour {
+			g.pendingWinPlayerID = g.Players[pi].ID
+			return res
+		}
 		g.WinnerPlayerID = g.Players[pi].ID
 		g.Phase = PhaseFinished
 		g.EndReason = "win"
@@ -238,7 +323,7 @@ func (g *Game) discardFromHand(pi int, card Card, chosen *Color) *Result {
 		res.Events = append(res.Events, g.event(EventWinner, g.Players[pi].ID, nil, ""))
 		return res
 	}
-	if g.updateUNO(pi) {
+	if g.Config.HouseRules.AutoUNO && g.updateUNO(pi) {
 		res.Events = append(res.Events, g.event(EventUNOCalled, g.Players[pi].ID, nil, ""))
 	}
 	return res
@@ -258,14 +343,14 @@ func (g *Game) applyDrawCard(pi int, a Action) (*Result, error) {
 	g.Players[pi].Hand = append(g.Players[pi].Hand, card)
 	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
 
-	playable := playableOn(card, g.ActiveColor, g.topRank())
-	if card.Rank == RankWildDrawFour && hasColor(g.Players[pi].Hand, g.ActiveColor) {
+	playable := g.isPlayable(card, g.Players[pi].Hand)
+	if playable && g.wouldFinishWith(card) {
 		playable = false
 	}
 	if playable {
 		g.Phase = PhaseDrawnDecision
 		g.DrawnCardID = card.ID
-		if g.updateUNO(pi) {
+		if g.Config.HouseRules.AutoUNO && g.updateUNO(pi) {
 			res.Events = append(res.Events, g.event(EventUNOCalled, g.Players[pi].ID, nil, ""))
 		}
 		res.NextPlayerID = g.Players[pi].ID
@@ -292,11 +377,97 @@ func (g *Game) applyPlayDrawn(pi int, a Action) (*Result, error) {
 	}
 	g.DrawnCardID = ""
 	g.Phase = PhaseTurn
+	if card.Rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour && g.Config.Cards.EnableDrawFour {
+		g.challengeViolated = hasColor(g.Players[pi].Hand, g.ActiveColor)
+		g.challengeResolver = g.Players[pi].ID
+	}
 	res := g.discardFromHand(pi, card, chosen)
 	if res.Ended {
 		return res, nil
 	}
 	g.applyEffectsAndAdvance(pi, card.Rank, res)
+	return res, nil
+}
+
+// applyAcceptFour resolves a +4 by the target accepting: they draw 4 and are
+// skipped (rule.md R13).
+func (g *Game) applyAcceptFour(pi int) (*Result, error) {
+	if g.Phase != PhaseChallenge {
+		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 challenge pending")
+	}
+	if g.Players[pi].ID != g.currentPlayer().ID {
+		return nil, gErr(ErrCodeNotYourTurn, "only the +4 target may accept")
+	}
+	n := len(g.Players)
+	drawn := g.drawCards(4)
+	g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+	res := &Result{}
+	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
+	g.CurrentIndex = wrap(pi+g.Direction, n)
+	g.Phase = PhaseTurn
+	g.challengeViolated = false
+	g.challengeResolver = ""
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+	g.maybeResolveDeferredWin(res)
+	return res, nil
+}
+
+// maybeResolveDeferredWin confirms a +4 resolver's win once the challenge is
+// settled (rule.md R27 / §16).
+func (g *Game) maybeResolveDeferredWin(res *Result) {
+	if g.pendingWinPlayerID == "" {
+		return
+	}
+	pi := g.playerIndex(g.pendingWinPlayerID)
+	if pi < 0 || len(g.Players[pi].Hand) != 0 {
+		g.pendingWinPlayerID = ""
+		return
+	}
+	g.WinnerPlayerID = g.pendingWinPlayerID
+	g.Phase = PhaseFinished
+	g.EndReason = "win"
+	g.pendingWinPlayerID = ""
+	res.Ended = true
+	res.WinnerID = g.WinnerPlayerID
+	res.Events = append(res.Events, g.event(EventWinner, g.WinnerPlayerID, nil, ""))
+}
+
+// applyChallengeFour resolves a +4 by the target challenging the resolver
+// (rule.md R13). If the resolver held the active color (violation) the resolver
+// draws 4 and the challenger's turn continues; otherwise the challenger draws 6
+// and is skipped.
+func (g *Game) applyChallengeFour(pi int) (*Result, error) {
+	if g.Phase != PhaseChallenge {
+		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 challenge pending")
+	}
+	if g.Players[pi].ID != g.currentPlayer().ID {
+		return nil, gErr(ErrCodeNotYourTurn, "only the +4 target may challenge")
+	}
+	n := len(g.Players)
+	res := &Result{}
+	if g.challengeViolated {
+		// Resolver held the active color: they draw 4, challenger continues.
+		ridx := g.playerIndex(g.challengeResolver)
+		drawn := g.drawCards(4)
+		g.Players[ridx].Hand = append(g.Players[ridx].Hand, drawn...)
+		g.cardDrawnEvent(res, g.Players[ridx].ID, len(drawn))
+		g.CurrentIndex = pi
+		res.Events = append(res.Events, g.event(EventChallengeSucceeded, g.Players[pi].ID, nil, ""))
+	} else {
+		// Clean: challenger draws 6 and is skipped.
+		drawn := g.drawCards(6)
+		g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+		g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
+		g.CurrentIndex = wrap(pi+g.Direction, n)
+		res.Events = append(res.Events, g.event(EventChallengeFailed, g.Players[pi].ID, nil, ""))
+	}
+	g.Phase = PhaseTurn
+	g.challengeViolated = false
+	g.challengeResolver = ""
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+	g.maybeResolveDeferredWin(res)
 	return res, nil
 }
 
@@ -325,6 +496,13 @@ func (g *Game) passAndAdvance(pi int, res *Result) (*Result, error) {
 func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 	n := len(g.Players)
 	playerID := g.Players[pi].ID
+	// Disabled cards act as ordinary matches (rule.md R08-R12): just advance.
+	if !g.effectEnabled(played) {
+		g.CurrentIndex = wrap(g.CurrentIndex+g.Direction, n)
+		res.NextPlayerID = g.currentPlayer().ID
+		res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+		return
+	}
 	switch played {
 	case RankSkip:
 		skipped := g.Players[wrap(g.CurrentIndex+g.Direction, n)].ID
@@ -349,6 +527,15 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		g.CurrentIndex = wrap(g.CurrentIndex+2*g.Direction, n)
 		res.Events = append(res.Events, g.event(EventSkipped, playerID, nil, "", g.Players[target].ID))
 	case RankWildDrawFour:
+		if g.Config.Cards.ChallengeDrawFour {
+			// The +4 effect is suspended until the target accepts or challenges.
+			target := wrap(g.CurrentIndex+g.Direction, n)
+			g.CurrentIndex = target
+			g.Phase = PhaseChallenge
+			res.Events = append(res.Events, g.event(EventChallenge, playerID, nil, "", g.Players[target].ID))
+			res.NextPlayerID = g.Players[target].ID
+			return
+		}
 		target := wrap(g.CurrentIndex+g.Direction, n)
 		drawn := g.drawCards(4)
 		g.Players[target].Hand = append(g.Players[target].Hand, drawn...)

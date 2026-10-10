@@ -168,6 +168,64 @@ func TestKey_DrawDecision(t *testing.T) {
 	}
 }
 
+func TestKey_Challenge(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseChallenge)
+		v.Challenge = &game.ChallengeView{ResolverPlayerID: "p1", YourDecision: true}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeChallenge {
+		t.Fatalf("expected challenge mode, got %v", m.mode())
+	}
+	_, a := runKey(t, m, "c")
+	if !strings.HasPrefix(a, "challenge_four") {
+		t.Fatalf("c should emit challenge_four, got %q", a)
+	}
+	_, a2 := runKey(t, m, "a")
+	if !strings.HasPrefix(a2, "accept_four") {
+		t.Fatalf("a should emit accept_four, got %q", a2)
+	}
+}
+
+func TestView_Challenge(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseChallenge)
+		v.Challenge = &game.ChallengeView{ResolverPlayerID: "p1", YourDecision: true}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "+4") || !strings.Contains(out, "Bob") {
+		t.Fatalf("challenge view wrong: %q", out)
+	}
+}
+
+func TestView_Rules(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 2, Locked: false})
+	m = nm.(Model)
+	// Toggle rules view on.
+	nm, _ = m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model)
+	if m.mode() != ModeRules {
+		t.Fatalf("expected rules mode, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "当前规则") || !strings.Contains(out, "v2") {
+		t.Fatalf("rules view wrong: %q", out)
+	}
+	// Toggle back off.
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model)
+	if m.mode() == ModeRules {
+		t.Fatalf("rules should be toggled off, got %v", m.mode())
+	}
+}
+
 func TestKey_Draw(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: testSnap()})

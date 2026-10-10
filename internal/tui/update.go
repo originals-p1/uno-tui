@@ -16,6 +16,10 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case HelpMsg:
 		m.help = !m.help
 		return m, nil
+	case ConfigMsg:
+		c := v.Config
+		m.Config, m.ConfigVersion, m.RulesLocked = &c, v.ConfigVersion, v.Locked
+		return m, nil
 	case KeyMsg:
 		return m.onKey(v.Key)
 	default:
@@ -47,6 +51,9 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "l":
 		return m, actCmd(ActLeave)
+	case "v":
+		m.rules = !m.rules
+		return m, nil
 	}
 
 	switch m.mode() {
@@ -67,6 +74,13 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			return m, actCmd(ActPlayDrawn)
 		case "g", " ":
 			return m, actCmd(ActPassDrawn)
+		}
+	case ModeChallenge:
+		switch k {
+		case "c":
+			return m, actCmd(ActChallengeFour)
+		case "a":
+			return m, actCmd(ActAcceptFour)
 		}
 	case ModeTurn:
 		if k == "d" || k == " " {

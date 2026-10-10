@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"terminal-uno/internal/game"
+	"terminal-uno/internal/protocol"
 )
 
 // Default idempotency cache capacity (readme §9: 256 entries per session).
@@ -28,6 +29,9 @@ const (
 	CodeReconnectExpired = "RECONNECT_EXPIRED"
 	CodeNameInvalid      = "NAME_INVALID"
 	CodeUnexpected       = "ERR_INTERNAL"
+	CodeConfigStale      = "CONFIG_STALE"
+	CodeNotWaitingPhase  = "NOT_WAITING_PHASE"
+	CodeConfigInvalid    = "CONFIG_INVALID"
 )
 
 // Kind categorizes a client request the room processes.
@@ -47,6 +51,8 @@ const (
 	KindDrawCard      Kind = "draw_card"
 	KindPlayDrawnCard Kind = "play_drawn_card"
 	KindPassDrawnCard Kind = "pass_drawn_card"
+
+	KindUpdateConfig Kind = "update_config"
 )
 
 // Config carries the room's security and timing knobs (readme §9).
@@ -102,8 +108,15 @@ type Request struct {
 	Hello      *HelloReq
 	Ready      *Ready
 	Disconnect *Disconnect
+	ConfigUpdate *ConfigUpdateReq
 
 	resp chan *Outcome
+}
+
+// ConfigUpdateReq carries a host's rules-configuration submission.
+type ConfigUpdateReq struct {
+	ExpectedConfigVersion uint64
+	Config                game.Config
 }
 
 // Ready carries a ready toggle.
@@ -142,6 +155,12 @@ type Outcome struct {
 	WelcomeView          *game.GameView
 	Joined               bool
 	DisconnectedDeadline string
+
+	// Config-sync (rule.md §0.5): set when the rules changed or were locked, so
+	// the server can relay CONFIG_SNAPSHOT / RULES_LOCKED to the players.
+	ConfigChanged  bool
+	RulesLocked    bool
+	ConfigSnapshot *protocol.ConfigSnapshot
 }
 
 // OK reports whether the request committed a game/room state change.
@@ -164,6 +183,14 @@ type Room struct {
 	hostID   string
 	players  map[string]*Member
 	order    []string
+
+	// room rule configuration (rule.md §0.5 C1). configVersion is optimistic-
+	// concurrency guarded; configLocked turns true at game start and blocks
+	// further UPDATE_CONFIG until the room returns to WAITING/FINISHED (v1
+	// single-round: a finish ends the room, so lock is permanent).
+	config        game.Config
+	configVersion uint64
+	configLocked  bool
 
 	sessions       map[string]*Session
 	playerSessions map[string]string
@@ -210,7 +237,14 @@ func newRoom(cfg Config, clock Clock) *Room {
 		reconnect:      map[string][]byte{},
 		disconnected:   map[string]time.Time{},
 		caches:         map[string]*idemCache{},
+		config:         game.DefaultConfig(),
 	}
+}
+
+// ConfigState returns the current authoritative room configuration, its version,
+// and whether the rules are locked (rule.md §0.5).
+func (r *Room) ConfigState() (game.Config, uint64, bool) {
+	return r.config, r.configVersion, r.configLocked
 }
 
 // Run starts the owner goroutine, driving both the inbox and deadline timers.
@@ -361,6 +395,8 @@ func (r *Room) process(req *Request) *Outcome {
 		return r.processLeave(req)
 	case KindDisconnect:
 		return r.processDisconnect(req)
+	case KindUpdateConfig:
+		return r.processUpdateConfig(req)
 	default:
 		return r.processGameAction(req)
 	}
@@ -576,15 +612,63 @@ func (r *Room) processStartGame(req *Request) *Outcome {
 		names = append(names, r.players[pid].Name)
 		ids = append(ids, pid)
 	}
-	g, err := game.NewGameWithIDs(names, ids, r.rng)
+	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
 	if err != nil {
-		return &Outcome{ErrCode: CodeUnexpected, Message: err.Error()}
+		return &Outcome{ErrCode: CodeConfigInvalid, Message: err.Error()}
 	}
 	r.game = g
 	r.started = true
+	r.configLocked = true
 	r.revision++
 	r.game.RoomRevision = r.revision
-	return &Outcome{Commit: &Commit{Revision: r.revision, Requester: r.buildView(playerID), Views: r.buildViews()}}
+	out := &Outcome{Commit: &Commit{Revision: r.revision, Requester: r.buildView(playerID), Views: r.buildViews()}}
+	out.RulesLocked = true
+	snap := r.configSnapshot()
+	out.ConfigSnapshot = &snap
+	return out
+}
+
+// processUpdateConfig handles a host's UPDATE_CONFIG request (rule.md §0.5).
+// Only the host may change the rules, only while the game is not in progress,
+// and the submitted config version must match the current one (optimistic
+// concurrency -> CONFIG_STALE on a mismatch).
+func (r *Room) processUpdateConfig(req *Request) *Outcome {
+	playerID := r.sessionPlayer(req)
+	if playerID == "" {
+		return &Outcome{ErrCode: CodeInvalidSession, Message: "unauthenticated session"}
+	}
+	m, ok := r.players[playerID]
+	if !ok || !m.IsHost {
+		return &Outcome{ErrCode: CodeNotHost, Message: "only host can configure rules"}
+	}
+	if r.started || r.configLocked {
+		return &Outcome{ErrCode: CodeNotWaitingPhase, Message: "rules are locked during a game"}
+	}
+	if req.ConfigUpdate == nil {
+		return &Outcome{ErrCode: CodeUnexpected, Message: "invalid update"}
+	}
+	if req.ConfigUpdate.ExpectedConfigVersion != r.configVersion {
+		snap := r.configSnapshot()
+		return &Outcome{ErrCode: CodeConfigStale,
+			Message:        "config version is stale; resend with current version",
+			ConfigSnapshot: &snap,
+		}
+	}
+	if err := req.ConfigUpdate.Config.Validate(); err != nil {
+		return &Outcome{ErrCode: CodeConfigInvalid, Message: err.Error()}
+	}
+	r.config = req.ConfigUpdate.Config
+	r.configVersion++
+	out := &Outcome{Commit: &Commit{Revision: r.revision, Requester: r.buildView(playerID), Views: r.buildViews()}}
+	out.ConfigChanged = true
+	snap := r.configSnapshot()
+	out.ConfigSnapshot = &snap
+	return out
+}
+
+// configSnapshot captures the authoritative config state for relay.
+func (r *Room) configSnapshot() protocol.ConfigSnapshot {
+	return protocol.ConfigSnapshot{Config: r.config, ConfigVersion: r.configVersion, Locked: r.configLocked}
 }
 
 func (r *Room) processLeave(req *Request) *Outcome {

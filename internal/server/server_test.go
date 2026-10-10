@@ -126,6 +126,14 @@ func TestServerNetpipe_HelloWelcomeRoundTrip(t *testing.T) {
 	if w.PlayerID == "" || w.SessionID == "" || w.Token == "" || w.ReconnectToken == "" {
 		t.Fatalf("welcome missing identity: %+v", w)
 	}
+	// The welcome is followed immediately by the authoritative config snapshot.
+	cs := p.recv()
+	if cs.Type != protocol.TypeConfigSnapshot {
+		t.Fatalf("after welcome got %q, want config_snapshot", cs.Type)
+	}
+	if _, ok := p.last.(*protocol.ConfigSnapshot); !ok {
+		t.Fatalf("config snapshot payload type %T, want *ConfigSnapshot", p.last)
+	}
 }
 
 func TestServerNetpipe_RoomKeyAuthFailure(t *testing.T) {
@@ -148,7 +156,8 @@ func TestServerNetpipe_TwoPlayersStartAndAct(t *testing.T) {
 
 	// Host joins.
 	pa.raw(helloMsg("r1", "Alice", "sekret", "", "host-tok"))
-	pa.recv() // welcome (host)
+	pa.recv()              // welcome (host)
+	pa.recv()              // host config_snapshot
 
 	// Guest joins.
 	pb := newProbeOn(t, s)
@@ -157,6 +166,7 @@ func TestServerNetpipe_TwoPlayersStartAndAct(t *testing.T) {
 	if m.Type != protocol.TypeWelcome {
 		t.Fatalf("guest got %q, want welcome", m.Type)
 	}
+	pb.recv() // guest config_snapshot
 
 	// Guest toggles ready -> revision 3.
 	pb.raw(readyMsg("r3", 2, true))
@@ -211,6 +221,7 @@ func TestServerNetpipe_PingPong(t *testing.T) {
 	p := newProbeOn(t, s)
 	p.raw(helloMsg("r1", "Alice", "sekret", "", "host-tok"))
 	p.recv()
+	p.recv() // config_snapshot
 
 	p.raw(&protocol.Message{ProtocolVersion: protocol.ProtocolVersion, Type: protocol.TypePing, Payload: []byte("{}")})
 	m := p.recv()

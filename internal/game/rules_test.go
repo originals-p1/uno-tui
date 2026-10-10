@@ -33,6 +33,7 @@ func mkGame(hands [][]Card, drawPile []Card, top Card, active Color, dir, curren
 		Direction:    dir,
 		ActiveColor:  active,
 		Phase:        phase,
+		Config:       DefaultConfig(),
 		rng:          rand.NewSource(1),
 	}
 }
@@ -161,11 +162,13 @@ func TestPlay_WildRequiresColor(t *testing.T) {
 // --- Task 2: Wild Draw Four restriction ---
 
 func TestPlay_WildDrawFour_InvalidWhenHoldingActiveColor(t *testing.T) {
-	// active red, player holds a red card -> +4 not allowed.
+	// Strict +4 (challenges disabled): active red, player holds a red card ->
+	// +4 not allowed.
 	g := mkGame(
 		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("red", ColorRed, RankFive)}},
 		nil, tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
 	)
+	g.Config.Cards.ChallengeDrawFour = false
 	if lm := g.LegalMoves("p0"); len(lm.PlayableIDs) != 1 || lm.PlayableIDs[0] != "red" {
 		t.Fatalf("only the red card should be playable, got %v", lm.PlayableIDs)
 	}
@@ -312,6 +315,8 @@ func TestPlay_WildDrawFour_TargetDrawsFour(t *testing.T) {
 		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour), tcard("x5", ColorBlue, RankFive)},
 		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
 	)
+	// Challenges disabled -> +4 applies its penalty immediately (no challenge).
+	g.Config.Cards.ChallengeDrawFour = false
 	before := len(g.Players[1].Hand)
 	_, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)})
 	if err != nil {
@@ -511,4 +516,133 @@ func TestApply_FinishedRejectsAll(t *testing.T) {
 	g.WinnerPlayerID = "p0"
 	_, err := g.Apply("p0", Action{Type: ActionDrawCard})
 	expectCode(t, err, ErrCodeGameFinished)
+}
+
+// --- +4 challenge (rule.md R13) ---
+
+func TestChallenge_AcceptDrawsFourAndSkips(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("b5", ColorBlue, RankFive)},
+			{tcard("b", ColorBlue, RankTwo)},
+			{tcard("c", ColorGreen, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	// default: challenge on
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	if g.Phase != PhaseChallenge || g.CurrentIndex != 1 {
+		t.Fatalf("expected challenge phase on p1, got phase=%s idx=%d", g.Phase, g.CurrentIndex)
+	}
+	before := len(g.Players[1].Hand)
+	res, err := g.Apply("p1", Action{Type: ActionAcceptFour})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if len(g.Players[1].Hand) != before+4 {
+		t.Fatalf("p1 hand grew by %d, want 4", len(g.Players[1].Hand)-before)
+	}
+	if g.Phase != PhaseTurn || g.CurrentIndex != 2 {
+		t.Fatalf("after accept phase=%s idx=%d, want turn on p2", g.Phase, g.CurrentIndex)
+	}
+	_ = res
+}
+
+func TestChallenge_LastCardFourDefersWinUntilAccept(t *testing.T) {
+	// Resolver plays +4 as their final card: win is deferred until the challenge
+	// settles (rule.md R27 / §16). Accepting still grants the resolver the win.
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour)},
+			{tcard("b", ColorBlue, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	if g.Phase != PhaseChallenge {
+		t.Fatalf("expected challenge phase even though resolver emptied hand, got %s", g.Phase)
+	}
+	res, err := g.Apply("p1", Action{Type: ActionAcceptFour})
+	if err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if !res.Ended || res.WinnerID != "p0" {
+		t.Fatalf("resolver should win after accepted +4, ended=%v winner=%q", res.Ended, res.WinnerID)
+	}
+	if g.Phase != PhaseFinished {
+		t.Fatalf("phase = %s, want finished", g.Phase)
+	}
+}
+
+func TestChallenge_ViolationResolverDrawsFour(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("r5", ColorRed, RankFive)}, // resolver held red (active)
+			{tcard("b", ColorBlue, RankTwo)},
+			{tcard("c", ColorGreen, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	beforeResolver := len(g.Players[0].Hand) // held r5 + the drawn +4? after discard = 1 (r5). plus draws.
+	beforeChallenger := len(g.Players[1].Hand)
+	res, err := g.Apply("p1", Action{Type: ActionChallengeFour})
+	if err != nil {
+		t.Fatalf("challenge: %v", err)
+	}
+	if len(g.Players[0].Hand) != beforeResolver+4 {
+		t.Fatalf("resolver hand grew by %d, want 4 (held active color)", len(g.Players[0].Hand)-beforeResolver)
+	}
+	if len(g.Players[1].Hand) != beforeChallenger {
+		t.Fatalf("challenger hand should be unchanged, grow %d", len(g.Players[1].Hand)-beforeChallenger)
+	}
+	// Challenger continues (not skipped).
+	if g.CurrentIndex != 1 || g.Phase != PhaseTurn {
+		t.Fatalf("challenger should continue: phase=%s idx=%d", g.Phase, g.CurrentIndex)
+	}
+	_ = res
+}
+
+func TestChallenge_CleanTargetDrawsSixAndSkipped(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("b5", ColorBlue, RankFive)}, // no red
+			{tcard("b", ColorBlue, RankTwo)},
+			{tcard("c", ColorGreen, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour), tcard("x5", ColorRed, RankFive), tcard("x6", ColorGreen, RankSix)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	beforeChallenger := len(g.Players[1].Hand)
+	_, err := g.Apply("p1", Action{Type: ActionChallengeFour})
+	if err != nil {
+		t.Fatalf("challenge: %v", err)
+	}
+	if len(g.Players[1].Hand) != beforeChallenger+6 {
+		t.Fatalf("challenger hand grew by %d, want 6", len(g.Players[1].Hand)-beforeChallenger)
+	}
+	// Challenger skipped -> resolver (p0) is current again.
+	if g.CurrentIndex != 2 {
+		t.Fatalf("current idx = %d, want 2 (p1 skipped)", g.CurrentIndex)
+	}
+}
+
+func TestChallenge_NonTargetCannotAct(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("b5", ColorBlue, RankFive)},
+			{tcard("b", ColorBlue, RankTwo)},
+			{tcard("c", ColorGreen, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	if _, err := g.Apply("p0", Action{Type: ActionChallengeFour}); err == nil {
+		t.Fatalf("resolver must not be able to challenge")
+	}
 }

@@ -4,6 +4,8 @@ import (
 	"testing"
 	"time"
 
+	"terminal-uno/internal/game"
+	"terminal-uno/internal/protocol"
 	"terminal-uno/internal/server"
 )
 
@@ -120,4 +122,84 @@ func TestClient_ReconnectResumesSession(t *testing.T) {
 		t.Fatalf("reconnected playerID=%q, want %q", got, firstID)
 	}
 	host2.Close()
+}
+
+func TestClient_UpdateConfigAndRelay(t *testing.T) {
+	cfg := server.DefaultConfig()
+	cfg.HostBootstrapToken = "host-tok"
+	cfg.RoomKey = "sekret"
+	s := server.NewServer(cfg, server.NewRealClock(), nil)
+	t.Cleanup(s.Close)
+	ln, err := s.Listen("127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	addr := ln.Addr().String()
+
+	host := NewClient(Config{Address: addr, Name: "Alice", RoomKey: "sekret",
+		HostBootstrapToken: "host-tok", ResponseTimeout: 3 * time.Second})
+	guest := NewClient(Config{Address: addr, Name: "Bob", RoomKey: "sekret",
+		ResponseTimeout: 3 * time.Second})
+
+	// Wire OnConfig before connecting so the welcome-time snapshot is captured.
+	hostSnap := make(chan protocol.ConfigSnapshot, 2)
+	guestSnap := make(chan protocol.ConfigSnapshot, 2)
+	host.OnConfig = func(cs protocol.ConfigSnapshot) { hostSnap <- cs }
+	guest.OnConfig = func(cs protocol.ConfigSnapshot) { guestSnap <- cs }
+
+	if err := host.Connect(addr); err != nil {
+		t.Fatalf("host connect: %v", err)
+	}
+	if err := guest.Connect(addr); err != nil {
+		t.Fatalf("guest connect: %v", err)
+	}
+
+	// Both clients should receive the initial CONFIG_SNAPSHOT after welcome.
+	select {
+	case cs := <-hostSnap:
+		if cs.ConfigVersion != 0 || cs.Config.Room.MaxPlayers != 4 {
+			t.Fatalf("host initial config snapshot wrong: %+v", cs)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("host did not receive initial config snapshot")
+	}
+	select {
+	case cs := <-guestSnap:
+		if cs.ConfigVersion != 0 || cs.Config.Room.MaxPlayers != 4 {
+			t.Fatalf("guest initial config snapshot wrong: %+v", cs)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("guest did not receive initial config snapshot")
+	}
+
+	// Host changes initial_hand_size to 5.
+	nc := game.DefaultConfig()
+	nc.Game.InitialHandSize = 5
+	resp, err := host.UpdateConfig(nc, 0, host.Revision())
+	if err != nil {
+		t.Fatalf("update config: %v", err)
+	}
+	if !resp.OK {
+		t.Fatalf("update config rejected: %s %s", resp.ErrCode, resp.Message)
+	}
+	// Every player receives a broadcast CONFIG_SNAPSHOT with version 1.
+	select {
+	case cs := <-hostSnap:
+		if cs.ConfigVersion != 1 || cs.Config.Game.InitialHandSize != 5 {
+			t.Fatalf("host updated config snapshot wrong: %+v", cs)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("host did not receive updated config snapshot")
+	}
+	select {
+	case cs := <-guestSnap:
+		if cs.ConfigVersion != 1 || cs.Config.Game.InitialHandSize != 5 {
+			t.Fatalf("guest updated config snapshot wrong: %+v", cs)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("guest did not receive updated config snapshot")
+	}
+
+	host.Close()
+	guest.Close()
 }

@@ -4,6 +4,7 @@ import (
 	tea "charm.land/bubbletea/v2"
 	"terminal-uno/internal/client"
 	"terminal-uno/internal/game"
+	"terminal-uno/internal/protocol"
 	"terminal-uno/internal/tui"
 )
 
@@ -38,7 +39,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.KeyPressMsg:
 		return m.forward(tui.KeyMsg{Key: normalizeKey(v)})
-	case tui.SnapshotMsg, tui.HelpMsg, tui.ErrorMsg:
+	case tui.SnapshotMsg, tui.HelpMsg, tui.ErrorMsg, tui.ConfigMsg:
 		return m.forward(v)
 	case tui.ActionMsg:
 		go m.dispatch(v)
@@ -90,6 +91,10 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 		_, _ = c.SendAction(game.Action{Type: game.ActionPlayDrawn, ChosenColor: col(a.ChosenColor)}, rev)
 	case tui.ActPassDrawn:
 		_, _ = c.SendAction(game.Action{Type: game.ActionPassDrawn}, rev)
+	case tui.ActAcceptFour:
+		_, _ = c.SendAction(game.Action{Type: game.ActionAcceptFour}, rev)
+	case tui.ActChallengeFour:
+		_, _ = c.SendAction(game.Action{Type: game.ActionChallengeFour}, rev)
 	case tui.ActReady:
 		_, _ = c.Ready(true, rev)
 	case tui.ActStartGame:
@@ -106,6 +111,9 @@ func runInteractive(c *client.Client, name string) error {
 	p := tea.NewProgram(m)
 	c.OnSnapshot = func(v *game.GameView) { p.Send(tui.SnapshotMsg{View: v}) }
 	c.OnError = func(code, message string) { p.Send(tui.ErrorMsg{Code: code, Message: message}) }
+	c.OnConfig = func(cs protocol.ConfigSnapshot) {
+		p.Send(tui.ConfigMsg{Config: cs.Config, ConfigVersion: cs.ConfigVersion, Locked: cs.Locked})
+	}
 	_, err := p.Run()
 	if err != nil {
 		return err

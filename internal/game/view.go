@@ -35,6 +35,13 @@ type PausedView struct {
 	EarliestDeadline      string   `json:"earliest_deadline"` // RFC 3339 UTC
 }
 
+// ChallengeView describes an ongoing +4 challenge (rule.md R13). It is
+// non-secret: it tells the UI who played the +4 and whose decision is pending.
+type ChallengeView struct {
+	ResolverPlayerID string `json:"resolver_player_id"`
+	YourDecision     bool   `json:"your_decision"` // true == it is your choice
+}
+
 // GameView is the full personalized view of the table.
 type GameView struct {
 	RoomRevision   uint64            `json:"room_revision"`
@@ -47,6 +54,7 @@ type GameView struct {
 	PlayableIDs    []string          `json:"playable_ids"`
 	Phase          string            `json:"phase"`
 	DrawDecision   *DrawDecisionView `json:"draw_decision,omitempty"`
+	Challenge      *ChallengeView    `json:"challenge,omitempty"`
 	Paused         *PausedView       `json:"paused,omitempty"`
 	WinnerPlayerID string            `json:"winner_player_id,omitempty"`
 	EndReason      string            `json:"end_reason,omitempty"`
@@ -100,6 +108,12 @@ func (g *Game) BuildViewFor(playerID string) *GameView {
 		}
 	}
 
+	if g.Phase == PhaseChallenge {
+		v.Challenge = &ChallengeView{
+			ResolverPlayerID: g.challengeResolver,
+			YourDecision:     playerID == g.currentPlayer().ID,
+		}
+	}
 	if g.Phase == PhasePaused {
 		v.Paused = g.pausedView()
 	}
