@@ -22,7 +22,6 @@ type cliOpts struct {
 	name        string
 	roomKeyFile string
 	addr        string // join target (may lack port)
-	noRoomKey   bool   // disabling keyed entry (casual LAN play)
 }
 
 // parseFlags parses the shared flags for a subcommand, accepting the address
@@ -68,10 +67,6 @@ func parseFlags(args []string, joined bool) (*cliOpts, error) {
 			o.roomKeyFile = v
 		case strings.HasPrefix(a, "--room-key-file="):
 			o.roomKeyFile = strings.TrimPrefix(a, "--room-key-file=")
-		case a == "--no-room-key" || a == "--no-room-key=true":
-			o.noRoomKey = true
-		case a == "--no-room-key=false":
-			o.noRoomKey = false
 		default:
 			if strings.HasPrefix(a, "-") && a != "-" {
 				return nil, fmt.Errorf("unknown flag %q", a)
@@ -121,18 +116,15 @@ func runHost(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if o.name == "" {
 		return errors.New("--name is required when hosting")
 	}
-	var key string
-	if !o.noRoomKey {
-		k, created, err := hostRoomKey(o.roomKeyFile, out)
-		if err != nil {
-			return err
-		}
-		if created {
-			fmt.Fprintf(out, "wrote new room key to %s\n", o.roomKeyFile)
-		}
-		key = k
-	} else {
-		fmt.Fprintln(out, "room key disabled (--no-room-key); anyone on the network can join")
+	key, created, err := hostRoomKey(o.roomKeyFile, out)
+	if err != nil {
+		return err
+	}
+	if created {
+		fmt.Fprintf(out, "wrote new room key to %s\n", o.roomKeyFile)
+	}
+	if o.roomKeyFile == "" {
+		fmt.Fprintln(out, "no room key (default); anyone on the network can join. Use --room-key-file to run keyed.")
 	}
 	hbt, err := newHostBootstrapToken()
 	if err != nil {
@@ -189,23 +181,9 @@ func runJoin(ctx context.Context, args []string, out, errOut io.Writer) error {
 	if err != nil {
 		return err
 	}
-	var key string
-	if !o.noRoomKey {
-		k, prompt, err := joinRoomKey(o.roomKeyFile)
-		if err != nil {
-			return err
-		}
-		if prompt {
-			if !isTerminal(os.Stdin) {
-				return errors.New("no --room-key-file and no terminal for a password prompt; provide the key file")
-			}
-			key, err = joinRoomKeyPrompt(os.Stderr, os.Stdin)
-			if err != nil {
-				return err
-			}
-		} else {
-			key = k
-		}
+	key, err := joinRoomKey(o.roomKeyFile)
+	if err != nil {
+		return err
 	}
 	c := client.NewClient(client.Config{
 		Address: target, Name: o.name, RoomKey: key,

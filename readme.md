@@ -683,26 +683,23 @@ GOOS=linux   GOARCH=amd64 go build -o uno-linux ./cmd/uno
 
 ### 开房（host）
 
-```bash
-# 生成密钥文件（不存在则创建，权限 0600）
-./uno host --port 7777 --name Alice --room-key-file ./room.key
+**默认无密钥**（临时 LAN 对局）：房主与加入端都不传 `--room-key-file` 即可。
 
-# 不指定密钥文件：随机 32 字节密钥仅显示一次，请私下告知加入者
-./uno host --port 7777 --name Alice
+```bash
+./uno host --port 7777 --name Alice                 # 无密钥
+./uno join <房主IP>:7777 --name Bob                 # 无密钥，缺省端口自动补 7777
+./uno join 192.168.1.10 --name Bob                  # 端口缺省
+```
+
+需要房间密钥保护时（双方都必须使用同一个密钥文件）：
+
+```bash
+./uno host --port 7777 --name Alice --room-key-file ./room.key   # 不存在则创建，权限 0600
+./uno join <房主IP>:7777 --name Bob --room-key-file ./room.key
 ```
 
 房主既运行服务器，也作为 `127.0.0.1` 上的本地玩家加入。监听于 `0.0.0.0`，
 启动时会打印本机应共享给同事/队友的地址与端口。
-
-### 加入（join）
-
-```bash
-./uno join <房主IP>:7777 --name Bob --room-key-file ./room.key   # 缺省端口自动补 7777
-./uno join 192.168.1.10 --name Bob --room-key-file ./room.key    # 端口缺省
-```
-
-未提供 `--room-key-file` 时，若在交互终端会以不回显方式提示输入密钥；非交互
-环境则报错，请改用密钥文件。
 
 ### 快捷键（TUI）
 
@@ -724,7 +721,7 @@ GOOS=linux   GOARCH=amd64 go build -o uno-linux ./cmd/uno
 
 | 现象 | 处理 |
 | --- | --- |
-| `join` 提示缺密钥且无终端 | 使用 `--room-key-file`；交互环境可直接输入 |
+| 默认无密钥；需保护房间 | 房主与加入端都使用同一个 `--room-key-file` |
 | 连接被拒 | 确认 host 已开房、端口一致、防火墙放行 |
 | `AUTH_FAILED` | 房间密钥不匹配，或重连 token 已失效 |
 | `ROOM_FULL` | 房间已满（最多 4 人）|

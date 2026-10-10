@@ -86,7 +86,7 @@ func TestHostRoomKey_CreateThenReuse(t *testing.T) {
 	}
 }
 
-func TestHostRoomKey_NoFilePrintsOnce(t *testing.T) {
+func TestHostRoomKey_NoFileIsKeyless(t *testing.T) {
 	var out bytes.Buffer
 	key, created, err := hostRoomKey("", &out)
 	if err != nil {
@@ -95,30 +95,33 @@ func TestHostRoomKey_NoFilePrintsOnce(t *testing.T) {
 	if created {
 		t.Fatalf("no file created when none requested")
 	}
-	if !strings.Contains(out.String(), key) {
-		t.Fatalf("generated key should be surfaced once for the host to share")
+	if key != "" {
+		t.Fatalf("no key expected by default, got %q", key)
+	}
+	if strings.Contains(out.String(), key) && key != "" {
+		t.Fatalf("key leaked to output")
 	}
 }
 
-func TestJoinRoomKey_NeedsPromptWithoutFile(t *testing.T) {
-	key, prompt, err := joinRoomKey("")
+func TestJoinRoomKey_NoFileIsKeyless(t *testing.T) {
+	key, err := joinRoomKey("")
 	if err != nil {
 		t.Fatalf("unexpected error: %v", err)
 	}
-	if key != "" || !prompt {
-		t.Fatalf("want prompt=true with no file, key=%q prompt=%v", key, prompt)
+	if key != "" {
+		t.Fatalf("want empty key with no file, got %q", key)
 	}
 }
 
 func TestJoinRoomKey_FromFile(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "k")
 	_ = writeRoomKeyFile(path, "sekret")
-	key, prompt, err := joinRoomKey(path)
+	key, err := joinRoomKey(path)
 	if err != nil {
 		t.Fatalf("joinRoomKey: %v", err)
 	}
-	if prompt || key != "sekret" {
-		t.Fatalf("prompt=%v key=%q", prompt, key)
+	if key != "sekret" {
+		t.Fatalf("key=%q", key)
 	}
 }
 
@@ -257,23 +260,4 @@ func (b *lockedBuf) String() string {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.buf.String()
-}
-
-func TestParseFlags_NoRoomKey(t *testing.T) {
-	// host without a key
-	o, err := parseFlags([]string{"--name", "Alice", "--no-room-key"}, false)
-	if err != nil {
-		t.Fatalf("parseFlags: %v", err)
-	}
-	if !o.noRoomKey {
-		t.Fatalf("expected noRoomKey=true")
-	}
-	// join address + flags after address
-	o2, err := parseFlags([]string{"1.2.3.4", "--name", "Bob", "--no-room-key"}, true)
-	if err != nil {
-		t.Fatalf("parseFlags: %v", err)
-	}
-	if !o2.noRoomKey || o2.addr != "1.2.3.4" {
-		t.Fatalf("unexpected parse: %+v", o2)
-	}
 }

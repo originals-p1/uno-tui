@@ -4,7 +4,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"io"
 	"os"
 	"path/filepath"
@@ -60,56 +59,34 @@ func writeRoomKeyFile(path string, key string) error {
 	return f.Close()
 }
 
-// hostRoomKey resolves the hosting-side key: reuse an existing file, or
-// generate one (creating/reusing the file, or printing once when no file is
-// requested). created reports whether a new file backed the key.
+// hostRoomKey resolves the hosting-side key. No key is used by default; a key
+// is only required when --room-key-file is given (read it, or create it with
+// owner-only permissions when missing). created reports whether a new file was
+// written.
 func hostRoomKey(path string, out io.Writer) (key string, created bool, err error) {
-	if path != "" {
-		if k, rerr := readRoomKeyFile(path); rerr == nil {
-			return k, false, nil
-		} else if !os.IsNotExist(rerr) {
-			return "", false, rerr
-		}
-		k, gerr := generateRoomKey()
-		if gerr != nil {
-			return "", false, gerr
-		}
-		if werr := writeRoomKeyFile(path, k); werr != nil {
-			return "", false, werr
-		}
-		return k, true, nil
+	if path == "" {
+		return "", false, nil // keyless by default
+	}
+	if k, rerr := readRoomKeyFile(path); rerr == nil {
+		return k, false, nil
+	} else if !os.IsNotExist(rerr) {
+		return "", false, rerr
 	}
 	k, gerr := generateRoomKey()
 	if gerr != nil {
 		return "", false, gerr
 	}
-	fmt.Fprintf(out, "no --room-key-file given; generated room key (shown once): %s\n"+
-		"  share it privately with players joining this room.\n", k)
-	return k, false, nil
+	if werr := writeRoomKeyFile(path, k); werr != nil {
+		return "", false, werr
+	}
+	return k, true, nil
 }
 
-// joinRoomKey resolves the join-side key from a file, or reports that a prompt
-// (in a terminal) is required.
-func joinRoomKey(path string) (key string, prompt bool, err error) {
-	if path != "" {
-		k, rerr := readRoomKeyFile(path)
-		return k, false, rerr
+// joinRoomKey resolves the join-side key: empty (keyless) unless a
+// --room-key-file was provided.
+func joinRoomKey(path string) (key string, err error) {
+	if path == "" {
+		return "", nil
 	}
-	return "", true, nil
-}
-
-// joinRoomKeyPrompt writes a no-echo prompt to pw and reads the key. It is only
-// called when joinRoomKey reported prompt=true.
-func joinRoomKeyPrompt(pw io.Writer, stdin *os.File) (string, error) {
-	fmt.Fprint(pw, "Room key: ")
-	raw, err := readPassword(stdin)
-	fmt.Fprintln(pw)
-	if err != nil {
-		return "", err
-	}
-	key := strings.TrimSpace(string(raw))
-	if key == "" {
-		return "", errors.New("empty room key")
-	}
-	return key, nil
+	return readRoomKeyFile(path)
 }

@@ -81,8 +81,7 @@ Usage:
 Flags (both modes):
   --name string          Player name (required)
   --port int             Listen port for host (default %d)
-  --room-key-file path   Room key file; host creates it if missing,
-                         join reads it (otherwise prompted, no echo)
-  --no-room-key          Disable the room key (casual LAN play)
+  --room-key-file path   Enable keyed entry: host creates/reads it,
+                         join reads it. Default is keyless.
 `, version, defaultPort, defaultPort)
 }
