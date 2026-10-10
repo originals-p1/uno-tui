@@ -1,7 +1,6 @@
 package game
 
-// CardView is the JSON shape of a card exposed to clients. It carries the
-// same fields as Card and is used in views and events.
+// CardView is the JSON shape of a card exposed to clients.
 type CardView struct {
 	ID    string `json:"id"`
 	Color Color  `json:"color"`
@@ -10,3 +9,105 @@ type CardView struct {
 
 // View returns the CardView form of c.
 func (c Card) View() CardView { return CardView{ID: c.ID, Color: c.Color, Rank: c.Rank} }
+
+// GameEvent is a public, history-serializable event. It must never contain
+// another player's hand cards or any secret field.
+type GameEvent struct {
+	ID           uint64      `json:"id"`
+	Revision     uint64      `json:"room_revision"`
+	Type         string      `json:"type"`
+	PlayerID     string      `json:"player_id"`
+	TargetPlayer string      `json:"target_player_id,omitempty"`
+	Card         *CardView   `json:"card,omitempty"`
+	Color        string      `json:"color,omitempty"`
+	Payload      interface{} `json:"payload,omitempty"`
+}
+
+// DrawDecisionView is the private per-player view shown only to the acting
+// player during the drawn_decision phase.
+type DrawDecisionView struct {
+	Card CardView `json:"card"`
+}
+
+// PausedView describes a paused game (disconnects and their deadline).
+type PausedView struct {
+	DisconnectedPlayerIDs []string `json:"disconnected_player_ids"`
+	EarliestDeadline      string   `json:"earliest_deadline"` // RFC 3339 UTC
+}
+
+// GameView is the full personalized view of the table.
+type GameView struct {
+	RoomRevision   uint64            `json:"room_revision"`
+	Players        []PlayerView      `json:"players"`
+	CurrentPlayer  string            `json:"current_player"`
+	Direction      int               `json:"direction"`
+	TopCard        CardView          `json:"top_card"`
+	ActiveColor    string            `json:"active_color"`
+	YourHand       []CardView        `json:"your_hand"`
+	PlayableIDs    []string          `json:"playable_ids"`
+	Phase          string            `json:"phase"`
+	DrawDecision   *DrawDecisionView `json:"draw_decision,omitempty"`
+	Paused         *PausedView       `json:"paused,omitempty"`
+	WinnerPlayerID string            `json:"winner_player_id,omitempty"`
+	EndReason      string            `json:"end_reason,omitempty"`
+	LastEventID    uint64            `json:"last_event_id"`
+	History        []GameEvent       `json:"history"`
+}
+
+// BuildViewFor returns a personalized view for playerID. Different players
+// receive different views: YourHand and PlayableIDs only ever contain the
+// requester's own cards, and DrawDecision is only populated for the acting
+// player during drawn_decision (readme §5.3).
+func (g *Game) BuildViewFor(playerID string) *GameView {
+	pi := g.playerIndex(playerID)
+	v := &GameView{
+		RoomRevision:  g.RoomRevision,
+		CurrentPlayer: g.currentPlayer().ID,
+		Direction:     g.Direction,
+		TopCard:       g.topCard().View(),
+		ActiveColor:   string(g.ActiveColor),
+		Phase:         string(g.Phase),
+		LastEventID:   g.lastEventID(),
+		History:       append([]GameEvent{}, g.history...),
+	}
+
+	v.Players = make([]PlayerView, 0, len(g.Players))
+	for i := range g.Players {
+		p := &g.Players[i]
+		v.Players = append(v.Players, PlayerView{
+			ID:        p.ID,
+			Name:      p.Name,
+			CardCount: len(p.Hand),
+			UNO:       p.HasUNO,
+			Connected: p.Connected,
+			Ready:     p.Ready,
+			IsHost:    p.IsHost,
+		})
+	}
+
+	if pi >= 0 {
+		for _, c := range g.Players[pi].Hand {
+			v.YourHand = append(v.YourHand, c.View())
+		}
+		lm := g.LegalMoves(playerID)
+		v.PlayableIDs = append([]string{}, lm.PlayableIDs...)
+
+		if g.Phase == PhaseDrawnDecision && g.DrawnCardID != "" && playerID == g.currentPlayer().ID {
+			if cidx := IndexOf(g.Players[pi].Hand, g.DrawnCardID); cidx >= 0 {
+				c := g.Players[pi].Hand[cidx].View()
+				v.DrawDecision = &DrawDecisionView{Card: c}
+			}
+		}
+	}
+
+	if g.Phase == PhasePaused {
+		v.Paused = g.pausedView()
+	}
+	if g.WinnerPlayerID != "" {
+		v.WinnerPlayerID = g.WinnerPlayerID
+	}
+	if g.EndReason != "" {
+		v.EndReason = g.EndReason
+	}
+	return v
+}

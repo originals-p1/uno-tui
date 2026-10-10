@@ -126,30 +126,38 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 		return nil, gErr(ErrCodeNotYourTurn, "it is not %s's turn", cur.ID)
 	}
 
+	var res *Result
+	var err error
 	switch a.Type {
 	case ActionPlayCard:
 		if g.Phase != PhaseTurn {
 			return nil, gErr(ErrCodeInvalidPhase, "cannot play a hand card in phase %s", g.Phase)
 		}
-		return g.applyPlayHandCard(pi, a)
+		res, err = g.applyPlayHandCard(pi, a)
 	case ActionDrawCard:
 		if g.Phase != PhaseTurn {
 			return nil, gErr(ErrCodeInvalidPhase, "cannot draw in phase %s", g.Phase)
 		}
-		return g.applyDrawCard(pi, a)
+		res, err = g.applyDrawCard(pi, a)
 	case ActionPlayDrawn:
 		if g.Phase != PhaseDrawnDecision {
 			return nil, gErr(ErrCodeInvalidPhase, "no drawn card decision in phase %s", g.Phase)
 		}
-		return g.applyPlayDrawn(pi, a)
+		res, err = g.applyPlayDrawn(pi, a)
 	case ActionPassDrawn:
 		if g.Phase != PhaseDrawnDecision {
 			return nil, gErr(ErrCodeInvalidPhase, "no drawn card decision in phase %s", g.Phase)
 		}
-		return g.applyPassDrawn(pi)
+		res, err = g.applyPassDrawn(pi)
 	default:
 		return nil, gErr(ErrCodeInvalidArgument, "unknown action type %q", a.Type)
 	}
+	if err != nil {
+		return nil, err
+	}
+	// Commit the transaction's public events onto the bounded history log.
+	g.commitEvents(res.Events)
+	return res, nil
 }
 
 // resolveChosenColor validates and returns the chosen color for a wild card,

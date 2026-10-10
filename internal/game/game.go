@@ -23,6 +23,8 @@ const (
 	MaxPlayers = 4
 	// CardsPerPlayer is the opening hand size.
 	CardsPerPlayer = 7
+	// PublicHistoryLimit bounds the number of public history events kept.
+	PublicHistoryLimit = 100
 )
 
 // Player is a participant tracked by the engine. Hand privacy is preserved by
@@ -64,8 +66,14 @@ type Game struct {
 	EndReason      string
 	PreviousPhase  Phase
 
-	rng      rand.Source // injected RNG (never nil after Start)
-	eventSeq uint64
+	RoomRevision uint64      // authoritative room revision (owned by the room loop)
+	rng          rand.Source // injected RNG (never nil after Start)
+	eventSeq     uint64
+	history      []GameEvent
+
+	// Paused metadata, populated by the room on disconnect.
+	disconnectedIDs  []string
+	earliestDeadline string
 }
 
 // NewGame builds a fresh game from the standard 108-card deck, dealing opening
@@ -159,3 +167,59 @@ func shuffle(deck []Card, src rand.Source) {
 // current game. It is safe for any caller (atomic), but in practice events
 // are only generated inside the single owner goroutine.
 func (g *Game) NextEventID() uint64 { return atomic.AddUint64(&g.eventSeq, 1) }
+
+// lastEventID returns the ID of the most recently committed event, or 0 if
+// no event has been committed yet.
+func (g *Game) lastEventID() uint64 {
+	if len(g.history) == 0 {
+		return 0
+	}
+	return g.history[len(g.history)-1].ID
+}
+
+// commitEvents appends public events onto the bounded history log. The room
+// loop must call this from the single owner goroutine after a successful
+// Apply. Events carry the room revision current at commit time.
+func (g *Game) commitEvents(events []Event) {
+	for _, e := range events {
+		g.history = append(g.history, GameEvent{
+			ID:           e.ID,
+			Revision:     g.RoomRevision,
+			Type:         string(e.Type),
+			PlayerID:     e.PlayerID,
+			TargetPlayer: e.TargetPlayer,
+			Card:         e.Card,
+			Color:        string(e.Color),
+			Payload:      e.Payload,
+		})
+	}
+	if n := len(g.history); n > PublicHistoryLimit {
+		g.history = g.history[n-PublicHistoryLimit:]
+	}
+}
+
+// SetPaused marks the game as paused due to disconnects. It is called by the
+// room loop with the exact set of offline players and the earliest deadline.
+func (g *Game) SetPaused(ids []string, earliestDeadline string) {
+	g.Phase = PhasePaused
+	g.previousPhaseSnapshot()
+	g.disconnectedIDs = append([]string{}, ids...)
+	g.earliestDeadline = earliestDeadline
+}
+
+// ResumePaused restores the game to the phase it held before pausing.
+func (g *Game) ResumePaused(prev Phase) {
+	g.Phase = prev
+	g.disconnectedIDs = nil
+	g.earliestDeadline = ""
+}
+
+func (g *Game) previousPhaseSnapshot() {}
+
+// pausedView renders the public paused summary.
+func (g *Game) pausedView() *PausedView {
+	return &PausedView{
+		DisconnectedPlayerIDs: append([]string{}, g.disconnectedIDs...),
+		EarliestDeadline:      g.earliestDeadline,
+	}
+}
