@@ -250,8 +250,15 @@ func (r *Room) Close() {
 }
 
 // Submit enqueues a request and waits for its outcome.
-func (r *Room) Submit(req *Request) *Outcome {
+func (r *Room) Submit(req *Request) (out *Outcome) {
 	req.resp = make(chan *Outcome, 1)
+	defer func() {
+		// If the room is shutting down the inbox may already be closed; return
+		// a stable error instead of panicking out of a server goroutine.
+		if recover() != nil {
+			out = &Outcome{ErrCode: CodeInvalidSession, Message: "room closed"}
+		}
+	}()
 	r.inbox <- req
 	return <-req.resp
 }
@@ -417,6 +424,7 @@ func (r *Room) admitHost(name string) *Outcome {
 	return &Outcome{
 		PlayerID: id, SessionID: sid, IsHost: true, Name: r.players[id].Name,
 		SessionToken: token, ReconnectToken: rtoken, Joined: true,
+		WelcomeView: r.lobbyView(id),
 	}
 }
 
@@ -453,6 +461,7 @@ func (r *Room) admitNew(name string) *Outcome {
 	return &Outcome{
 		PlayerID: id, SessionID: sid, Name: clean,
 		SessionToken: token, ReconnectToken: rtoken, Joined: true,
+		WelcomeView: r.lobbyView(id),
 	}
 }
 
@@ -562,10 +571,12 @@ func (r *Room) processStartGame(req *Request) *Outcome {
 		}
 	}
 	names := make([]string, 0, len(r.order))
+	ids := make([]string, 0, len(r.order))
 	for _, pid := range r.order {
 		names = append(names, r.players[pid].Name)
+		ids = append(ids, pid)
 	}
-	g, err := game.NewGame(names, r.rng)
+	g, err := game.NewGameWithIDs(names, ids, r.rng)
 	if err != nil {
 		return &Outcome{ErrCode: CodeUnexpected, Message: err.Error()}
 	}

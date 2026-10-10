@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"strings"
 	"testing"
+
+	"terminal-uno/internal/game"
 )
 
 func decodeStr(t *testing.T, js string) (*Message, interface{}, error) {
@@ -166,5 +168,59 @@ func TestEncodeResponseAndTypeShape(t *testing.T) {
 	raw, _ := Marshal(m)
 	if !strings.Contains(string(raw), `"type":"response"`) {
 		t.Fatalf("envelope not serializing correctly: %s", raw)
+	}
+}
+
+func TestDecode_ServerMessages(t *testing.T) {
+	// welcome
+	raw := `{"protocol_version":1,"type":"welcome","request_id":"r1",
+		"payload":{"player_id":"p0","session_id":"s1","session_token":"tok",
+		"reconnect_token":"rt","is_host":true}}`
+	m, payload, err := Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("welcome decode: %v", err)
+	}
+	if m.Type != TypeWelcome {
+		t.Fatalf("type=%q", m.Type)
+	}
+	if w := payload.(*Welcome); w.PlayerID != "p0" || !w.IsHost {
+		t.Fatalf("welcome payload: %+v", w)
+	}
+
+	// response
+	raw = `{"protocol_version":1,"type":"response","request_id":"r2","room_revision":5,
+		"payload":{"accepted":true}}`
+	m, payload, err = Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("response decode: %v", err)
+	}
+	if ra := payload.(*ResponseAck); !ra.Accepted || m.RoomRevision != 5 {
+		t.Fatalf("response payload: %+v rev=%d", ra, m.RoomRevision)
+	}
+
+	// error
+	raw = `{"protocol_version":1,"type":"error","request_id":"r3","room_revision":6,
+		"payload":{"code":"AUTH_FAILED","message":"bad"}}`
+	m, payload, err = Decode([]byte(raw))
+	if err != nil {
+		t.Fatalf("error decode: %v", err)
+	}
+	if eb := payload.(*ErrorBody); eb.Code != "AUTH_FAILED" || eb.Message != "bad" {
+		t.Fatalf("error payload: %+v", eb)
+	}
+
+	// state_snapshot (round-trip through EncodeStateSnapshot)
+	gv := &game.GameView{RoomRevision: 9}
+	em, err := EncodeStateSnapshot(9, gv)
+	if err != nil {
+		t.Fatalf("encode snapshot: %v", err)
+	}
+	rawb, _ := Marshal(em)
+	_, payload, err = Decode(rawb)
+	if err != nil {
+		t.Fatalf("snapshot decode: %v", err)
+	}
+	if v := payload.(*game.GameView); v.RoomRevision != 9 {
+		t.Fatalf("snapshot rev=%d, want 9", v.RoomRevision)
 	}
 }

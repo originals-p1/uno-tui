@@ -83,9 +83,35 @@ func NewGame(playerNames []string, rng rand.Source) (*Game, error) {
 	return newGameFromDeck(playerNames, StandardDeck(), rng)
 }
 
+// NewGameWithIDs is like NewGame but assigns the supplied stable player IDs
+// (one per name, in seat order) instead of synthesized seat IDs. The server
+// uses its own session-scoped player IDs so that reconnection, the player
+// registry, and per-player views all reference one consistent identity
+// (readme §3.6 stable player identity).
+func NewGameWithIDs(playerNames, playerIDs []string, rng rand.Source) (*Game, error) {
+	if len(playerIDs) != len(playerNames) {
+		return nil, newErr(ErrCodeInvalidArgument, "player_ids length %d != names length %d", len(playerIDs), len(playerNames))
+	}
+	seen := map[string]bool{}
+	for _, id := range playerIDs {
+		if id == "" {
+			return nil, newErr(ErrCodeInvalidArgument, "empty player id")
+		}
+		if seen[id] {
+			return nil, newErr(ErrCodeInvalidArgument, "duplicate player id %q", id)
+		}
+		seen[id] = true
+	}
+	return newGameFromDeckIDs(playerNames, playerIDs, StandardDeck(), rng)
+}
+
 // newGameFromDeck is the testable core of NewGame: it builds the game from an
 // arbitrary deck, which lets tests exercise the "no initial number card" path.
 func newGameFromDeck(playerNames []string, deck []Card, rng rand.Source) (*Game, error) {
+	return newGameFromDeckIDs(playerNames, nil, deck, rng)
+}
+
+func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, rng rand.Source) (*Game, error) {
 	if rng == nil {
 		return nil, newErr(ErrCodeInvalidArgument, "rng must not be nil")
 	}
@@ -105,8 +131,12 @@ func newGameFromDeck(playerNames []string, deck []Card, rng rand.Source) (*Game,
 
 	players := make([]Player, 0, len(playerNames))
 	for i, nm := range playerNames {
+		id := playerID(i)
+		if playerIDs != nil {
+			id = playerIDs[i]
+		}
 		players = append(players, Player{
-			ID:        playerID(i),
+			ID:        id,
 			Name:      sanitizeName(nm),
 			Hand:      make([]Card, 0, CardsPerPlayer+1),
 			Connected: true,

@@ -65,10 +65,12 @@ type Hello struct {
 
 // Welcome is the server's session greeting carrying the private session token.
 type Welcome struct {
-	PlayerID  string         `json:"player_id"`
-	SessionID string         `json:"session_id"`
-	Token     string         `json:"session_token"`
-	Snapshot  *game.GameView `json:"snapshot,omitempty"`
+	PlayerID       string         `json:"player_id"`
+	SessionID      string         `json:"session_id"`
+	Token          string         `json:"session_token"`
+	ReconnectToken string         `json:"reconnect_token"`
+	IsHost         bool           `json:"is_host"`
+	Snapshot       *game.GameView `json:"snapshot,omitempty"`
 }
 
 // Ready is the ready/pass toggle request.
@@ -176,6 +178,27 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 			return nil, nil, err
 		}
 		return &m, &Empty{}, nil
+	case TypeWelcome:
+		if err := requireRequestID(&m); err != nil {
+			return nil, nil, err
+		}
+		p, err := decodeObject(m.Payload, func(p *Welcome) error { return nil })
+		return &m, p, err
+	case TypeResponse:
+		if err := requireRequestID(&m); err != nil {
+			return nil, nil, err
+		}
+		p, err := decodeObject(m.Payload, func(p *ResponseAck) error { return nil })
+		return &m, p, err
+	case TypeError:
+		if err := requireRequestID(&m); err != nil {
+			return nil, nil, err
+		}
+		p, err := decodeObject(m.Payload, func(p *ErrorBody) error { return nil })
+		return &m, p, err
+	case TypeStateSnapshot:
+		p, err := decodeObject(m.Payload, func(p *game.GameView) error { return nil })
+		return &m, p, err
 	default:
 		return nil, nil, newProto(CodeInvalidMessage, "unknown message type %q", m.Type)
 	}
