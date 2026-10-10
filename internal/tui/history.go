@@ -13,11 +13,13 @@ import (
 // client that witnesses the game finish (readme §toast/log). History is kept
 // locally per user so privacy (never share opponents' hands) is preserved.
 type MatchRecord struct {
-	Seq       int64          `json:"seq"`
-	Time      time.Time      `json:"time"`
-	Winner    string         `json:"winner"`     // winner's display name
-	EndReason string         `json:"end_reason,omitempty"`
-	Players   []RecordPlayer `json:"players"`
+	Seq           int64             `json:"seq"`
+	Time          time.Time         `json:"time"`
+	Winner        string            `json:"winner"`     // winner's display name
+	EndReason     string            `json:"end_reason,omitempty"`
+	ConfigVersion uint64            `json:"config_version"`
+	Events        []game.GameEvent  `json:"events,omitempty"`
+	Players       []RecordPlayer    `json:"players"`
 }
 
 // RecordPlayer is one participant's final state in a completed game.
@@ -84,12 +86,16 @@ func saveHistory(recs []MatchRecord) error {
 	return os.WriteFile(historyFilePath(), b, 0o600)
 }
 
-// recordFromView builds a MatchRecord from a finished game snapshot.
-func recordFromView(v *game.GameView, seq int64) MatchRecord {
+// recordFromView builds a MatchRecord from a finished game snapshot. The full
+// privacy-safe event timeline (v.History) is captured so a recorded game can
+// be replayed for bug triage.
+func recordFromView(v *game.GameView, seq int64, configVersion uint64) MatchRecord {
 	rec := MatchRecord{
-		Seq:       seq,
-		Time:      time.Now(),
-		EndReason: v.EndReason,
+		Seq:           seq,
+		Time:          time.Now(),
+		EndReason:     v.EndReason,
+		ConfigVersion: configVersion,
+		Events:        append([]game.GameEvent{}, v.History...),
 	}
 	for _, p := range v.Players {
 		if p.ID == v.WinnerPlayerID {

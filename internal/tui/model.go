@@ -47,7 +47,8 @@ type Model struct {
 	// match history (persisted locally, ModeHistory).
 	history            []MatchRecord
 	hist               bool // history modal open
-	matchSeq            int64
+	histSel            int  // selected record index (>=0 => detail/replay view)
+	matchSeq           int64
 	recordedLastEventID uint64
 }
 
@@ -67,7 +68,7 @@ type ownCard struct {
 
 // NewModel builds a fresh lobby TUI, loading any local match history.
 func NewModel(name string) Model {
-	return Model{Name: name, help: false, history: loadHistory()}
+	return Model{Name: name, help: false, history: loadHistory(), histSel: -1}
 }
 
 // Init satisfies tea.Model; no startup command.

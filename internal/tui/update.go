@@ -62,7 +62,7 @@ func (m *Model) recordFinished() {
 		return // already recorded this finish
 	}
 	m.matchSeq++
-	rec := recordFromView(v, m.matchSeq)
+	rec := recordFromView(v, m.matchSeq, m.ConfigVersion)
 	m.history = appendAndSave(m.history, rec)
 	if v.LastEventID != 0 {
 		m.recordedLastEventID = v.LastEventID
@@ -93,6 +93,9 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if k == "t" {
+		if !m.hist {
+			m.histSel = -1 // open at the list
+		}
 		m.hist = !m.hist
 		return m, nil
 	}
@@ -100,6 +103,10 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		// q is a context-aware back key: it closes the topmost overlay (help,
 		// rules view, or history) before ever quitting the app.
 		if m.hist {
+			if m.histSel >= 0 {
+				m.histSel = -1 // back to history list first
+				return m, nil
+			}
 			m.hist = false
 			return m, nil
 		}
@@ -148,6 +155,13 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			m.edit = true
 			m.editSel = 0
 			m.editMsg = ""
+		}
+	case ModeHistory:
+		// In the list view, digits select a record to expand its replay log.
+		if m.histSel < 0 {
+			if idx, ok := digitIndex(k); ok && idx < len(m.history) {
+				m.histSel = idx
+			}
 		}
 	case ModeConfigEdit:
 		return m.onConfigEditKey(k)

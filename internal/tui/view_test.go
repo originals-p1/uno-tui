@@ -638,6 +638,7 @@ func TestView_ColorPanelShowsColorAndHand(t *testing.T) {
 // A finished game is persisted as a match record exactly once, and the
 // history modal lists it.
 func TestHistory_RecordsFinishedGame(t *testing.T) {
+	historyFileOverride = t.TempDir() + "/games.json"
 	m := newModel("p0")
 	fin := testSnap(func(v *game.GameView) {
 		v.Phase = string(game.PhaseFinished)
@@ -702,4 +703,67 @@ func TestView_FinishedShowsSummary(t *testing.T) {
 		t.Fatalf("finished screen missing winner star: %q", out)
 	}
 	return
+}
+
+// The recorded match carries the full privacy-safe event timeline, and the
+// history detail view replays it (for bug triage).
+func TestHistory_ReplayDetail(t *testing.T) {
+	historyFileOverride = t.TempDir() + "/games.json"
+	m := newModel("p0")
+	nm, _ := m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 3})
+	m = nm.(Model)
+
+	ev := []game.GameEvent{
+		{ID: 1, Type: string(game.EventTurnStarted), PlayerID: "p0"},
+		{ID: 2, Type: string(game.EventCardPlayed), PlayerID: "p0", Card: &game.CardView{Color: game.ColorRed, Rank: game.RankTwo}},
+		{ID: 3, Type: string(game.EventWinner), PlayerID: "p0"},
+	}
+	fin := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseFinished)
+		v.WinnerPlayerID = "p0"
+		v.LastEventID = 3
+		v.History = ev
+	})
+	nm, _ = m.Update(SnapshotMsg{View: fin})
+	m = nm.(Model)
+	if len(m.history) != 1 {
+		t.Fatalf("want 1 record, got %d", len(m.history))
+	}
+	if len(m.history[0].Events) != 3 {
+		t.Fatalf("record missing event timeline: got %d events", len(m.history[0].Events))
+	}
+	if m.history[0].ConfigVersion != 3 {
+		t.Fatalf("record config version = %d, want 3", m.history[0].ConfigVersion)
+	}
+
+	// Open history, select the (only) record with [1], and see the replay.
+	nm, _ = m.Update(KeyMsg{Key: "t"})
+	m = nm.(Model)
+	if m.mode() != ModeHistory {
+		t.Fatalf("want ModeHistory, got %v", m.mode())
+	}
+	nm, _ = m.Update(KeyMsg{Key: "1"})
+	m = nm.(Model)
+	if m.histSel != 0 {
+		t.Fatalf("histSel = %d, want 0", m.histSel)
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, string(game.EventTurnStarted)) || !strings.Contains(out, string(game.EventCardPlayed)) {
+		t.Fatalf("replay detail missing events: %q", out)
+	}
+	if !strings.Contains(out, "R2") {
+		t.Fatalf("replay detail missing played card: %q", out)
+	}
+
+	// q returns to the list, q again closes.
+	nm, _ = m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.histSel != -1 || m.mode() != ModeHistory {
+		t.Fatalf("q should return to list (histSel=%d mode=%v)", m.histSel, m.mode())
+	}
+	nm, _ = m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.mode() != ModeFinished {
+		t.Fatalf("q should close history to finished, got %v", m.mode())
+	}
 }

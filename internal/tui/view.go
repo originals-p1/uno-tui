@@ -560,21 +560,25 @@ func (m Model) renderFinished(o RenderOpts) string {
 	return b.String()
 }
 
-// renderHistory lists locally persisted completed matches, newest first.
+// renderHistory lists locally persisted completed matches, newest first, or
+// expands a selected record into a full event replay for bug triage.
 func (m Model) renderHistory(o RenderOpts) string {
+	if m.histSel >= 0 && m.histSel < len(m.history) {
+		return renderHistoryDetail(m.history[m.histSel], o)
+	}
 	var b strings.Builder
 	b.WriteString("对局记录（本机 " + historyFilePath() + "）：\n")
 	if len(m.history) == 0 {
 		b.WriteString("  还没有完成的对局。\n\n  (q) 返回\n")
 		return b.String()
 	}
-	for i := range m.history {
-		rec := &m.history[i]
-		b.WriteString(fmt.Sprintf("  第 %d 局  %s\n", rec.Seq, rec.Time.Format("01-02 15:04")))
-		b.WriteString("    胜者：" + rec.Winner + "\n")
-		if rec.EndReason != "" {
-			b.WriteString("    原因：" + rec.EndReason + "\n")
+	for i, rec := range m.history {
+		num := fmt.Sprintf("%d", i+1)
+		if i == 9 {
+			num = "0"
 		}
+		b.WriteString(fmt.Sprintf("  [%s] 第 %d 局  %s  胜者：%s\n", num, rec.Seq, rec.Time.Format("01-02 15:04"), rec.Winner))
+		b.WriteString(fmt.Sprintf("      规则 v%d  事件 %d 条\n", rec.ConfigVersion, len(rec.Events)))
 		for _, p := range rec.Players {
 			mark := "    "
 			if p.Winner {
@@ -586,7 +590,42 @@ func (m Model) renderHistory(o RenderOpts) string {
 			b.WriteString("\n")
 		}
 	}
-	b.WriteString("\n  (q) 返回\n")
+	b.WriteString("\n  (1-9/0) 展开回放   (q) 返回\n")
+	return b.String()
+}
+
+// renderHistoryDetail dumps a selected record as a replayable event log.
+func renderHistoryDetail(rec MatchRecord, o RenderOpts) string {
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("第 %d 局  %s  胜者：%s\n", rec.Seq, rec.Time.Format("01-02 15:04"), rec.Winner))
+	if rec.EndReason != "" {
+		b.WriteString("  原因：" + rec.EndReason + "\n")
+	}
+	for _, p := range rec.Players {
+		mark := "  "
+		if p.Winner {
+			mark = "★ "
+		}
+		b.WriteString(fmt.Sprintf("  %s%s  %d 张\n", mark, p.Name, p.CardCount))
+	}
+	b.WriteString(fmt.Sprintf("  规则 v%d，事件 %d 条：\n", rec.ConfigVersion, len(rec.Events)))
+	for _, ev := range rec.Events {
+		who := ev.PlayerID
+		card := ""
+		if ev.Card != nil {
+			card = " " + cardText(*ev.Card)
+		}
+		color := ""
+		if ev.Color != "" {
+			color = "/" + colorNameZh(string(ev.Color))
+		}
+		target := ""
+		if ev.TargetPlayer != "" {
+			target = " 目标:" + ev.TargetPlayer
+		}
+		b.WriteString(fmt.Sprintf("  #%d %s %s%s%s%s\n", ev.ID, ev.Type, who, card, color, target))
+	}
+	b.WriteString("\n  (q) 返回列表\n")
 	return b.String()
 }
 
@@ -611,7 +650,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeFinished:
 		return "按键：l=离开 t=对局记录 h=帮助 q=退出"
 	case ModeHistory:
-		return "按键：q=返回 h=帮助"
+		return "按键：1-9/0=展开回放 q=返回 h=帮助"
 	default:
 		return "按键：1-9=出牌 d=摸牌 h=帮助 q=退出"
 	}
@@ -647,6 +686,7 @@ func (m Model) renderHelp(o RenderOpts) string {
 
 对局记录：
   t       查看本机历史对局（q 返回）
+  1-9/0   在历史里展开某一局的事件回放（q 返回列表）
 
 房主设置规则（v 后按 e）：
   ↑/↓ (k/j)  选择项目
