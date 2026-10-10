@@ -45,3 +45,13 @@ func currentPlayerStyle(text string) string {
 func playableStyle(text string) string {
 	return lip.NewStyle().Bold(true).Render(text)
 }
+
+// successStyle renders a challenge-success banner (green).
+func successStyle(text string) string {
+	return lip.NewStyle().Foreground(lip.Color("34")).Bold(true).Render(text)
+}
+
+// failStyle renders a challenge-failure banner (red).
+func failStyle(text string) string {
+	return lip.NewStyle().Foreground(lip.Color("196")).Bold(true).Render(text)
+}

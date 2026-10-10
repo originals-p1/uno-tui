@@ -646,3 +646,50 @@ func TestChallenge_NonTargetCannotAct(t *testing.T) {
 		t.Fatalf("resolver must not be able to challenge")
 	}
 }
+
+// TestChallenge_TriggersColorAndResultBanner verifies the challenge view exposes
+// the active color at the moment the +4 was played (not the chosen one), and
+// that the resolve sets a transient result banner which the next action clears.
+func TestChallenge_TriggersColorAndResultBanner(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("w4", ColorWild, RankWildDrawFour), tcard("r5", ColorRed, RankFive)}, // held red (active) -> violation
+			{tcard("b", ColorBlue, RankTwo)}, {tcard("c", ColorGreen, RankTwo)}},
+		[]Card{tcard("x1", ColorBlue, RankOne), tcard("x2", ColorGreen, RankTwo), tcard("x3", ColorYellow, RankThree), tcard("x4", ColorRed, RankFour)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: colp(ColorGreen)}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	// While pending, the trigger color is the pre-+4 active color (red), not the
+	// chosen green.
+	cv := g.BuildViewFor("p1")
+	if cv.Challenge == nil {
+		t.Fatalf("no challenge in view")
+	}
+	if cv.Challenge.TriggerColor != string(ColorRed) {
+		t.Fatalf("trigger color = %q, want red (pre-+4 active)", cv.Challenge.TriggerColor)
+	}
+	if cv.ChallengeRes != nil {
+		t.Fatalf("no result banner should be set while pending")
+	}
+
+	// p1 challenges and wins (p0 held red).
+	if _, err := g.Apply("p1", Action{Type: ActionChallengeFour}); err != nil {
+		t.Fatalf("challenge: %v", err)
+	}
+	tv := g.BuildViewFor("p1")
+	if tv.ChallengeRes == nil || !tv.ChallengeRes.Succeeded {
+		t.Fatalf("expected a successful challenge result banner, got %+v", tv.ChallengeRes)
+	}
+	if tv.ChallengeRes.ChallengerPlayerID != "p1" || tv.ChallengeRes.ResolverPlayerID != "p0" {
+		t.Fatalf("result ids wrong: %+v", tv.ChallengeRes)
+	}
+
+	// The next legitimate turn action clears the banner.
+	if _, err := g.Apply("p1", Action{Type: ActionDrawCard}); err != nil {
+		t.Fatalf("draw after challenge: %v", err)
+	}
+	if g.BuildViewFor("p1").ChallengeRes != nil {
+		t.Fatalf("result banner should be cleared by the next action")
+	}
+}

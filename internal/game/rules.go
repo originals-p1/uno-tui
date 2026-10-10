@@ -170,6 +170,12 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 		return nil, gErr(ErrCodeNotYourTurn, "it is not %s's turn", cur.ID)
 	}
 
+	// A regular in-turn action clears the transient challenge-outcome banner;
+	// the accept/challenge actions themselves set it.
+	if a.Type != ActionAcceptFour && a.Type != ActionChallengeFour {
+		g.lastChallengeResult = nil
+	}
+
 	var res *Result
 	var err error
 	switch a.Type {
@@ -253,6 +259,7 @@ func (g *Game) applyPlayHandCard(pi int, a Action) (*Result, error) {
 	if card.Rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour && g.Config.Cards.EnableDrawFour {
 		g.challengeViolated = hasColor(g.Players[pi].Hand, g.ActiveColor)
 		g.challengeResolver = g.Players[pi].ID
+		g.challengeTriggerColor = string(g.ActiveColor)
 	}
 
 	res := g.discardFromHand(pi, card, chosen)
@@ -380,6 +387,7 @@ func (g *Game) applyPlayDrawn(pi int, a Action) (*Result, error) {
 	if card.Rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour && g.Config.Cards.EnableDrawFour {
 		g.challengeViolated = hasColor(g.Players[pi].Hand, g.ActiveColor)
 		g.challengeResolver = g.Players[pi].ID
+		g.challengeTriggerColor = string(g.ActiveColor)
 	}
 	res := g.discardFromHand(pi, card, chosen)
 	if res.Ended {
@@ -407,6 +415,8 @@ func (g *Game) applyAcceptFour(pi int) (*Result, error) {
 	g.Phase = PhaseTurn
 	g.challengeViolated = false
 	g.challengeResolver = ""
+	// Accepted challenge: resolved without a ruling; clear the violation banner.
+	g.lastChallengeResult = nil
 	res.NextPlayerID = g.currentPlayer().ID
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
 	g.maybeResolveDeferredWin(res)
@@ -446,6 +456,10 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 	}
 	n := len(g.Players)
 	res := &Result{}
+	g.lastChallengeResult = &ChallengeResult{
+		ResolverPlayerID:   g.challengeResolver,
+		ChallengerPlayerID: g.Players[pi].ID,
+	}
 	if g.challengeViolated {
 		// Resolver held the active color: they draw 4, challenger continues.
 		ridx := g.playerIndex(g.challengeResolver)
@@ -454,6 +468,7 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 		g.cardDrawnEvent(res, g.Players[ridx].ID, len(drawn))
 		g.CurrentIndex = pi
 		res.Events = append(res.Events, g.event(EventChallengeSucceeded, g.Players[pi].ID, nil, ""))
+		g.lastChallengeResult.Succeeded = true
 	} else {
 		// Clean: challenger draws 6 and is skipped.
 		drawn := g.drawCards(6)
@@ -461,6 +476,7 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 		g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
 		g.CurrentIndex = wrap(pi+g.Direction, n)
 		res.Events = append(res.Events, g.event(EventChallengeFailed, g.Players[pi].ID, nil, ""))
+		g.lastChallengeResult.Succeeded = false
 	}
 	g.Phase = PhaseTurn
 	g.challengeViolated = false

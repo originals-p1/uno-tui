@@ -81,6 +81,15 @@ type Game struct {
 	// with challenges enabled and awaiting the target's accept/decline.
 	challengeViolated bool // resolver held the active color at play time
 	challengeResolver string
+	// challengeTriggerColor is the active color on the table at the moment the
+	// +4 was played — the color the resolver needed to (not) hold. It is captured
+	// before the +4's chosen color overwrites ActiveColor, and exposed so the
+	// challenger can judge whether to challenge (rule.md R13).
+	challengeTriggerColor string
+	// lastChallengeResult is a transient outcome banner set when a challenge is
+	// accepted/settled and cleared on the next player action, so the UI can show
+	// success/failure feedback.
+	lastChallengeResult *ChallengeResult
 	// pendingWinPlayerID defers a +4 resolver's win until the challenge settles
 	// (rule.md R27 / §16 last-card +4 edge).
 	pendingWinPlayerID string

@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	tea "charm.land/bubbletea/v2"
+	lip "charm.land/lipgloss/v2"
 	"terminal-uno/internal/game"
 )
 
@@ -53,23 +54,27 @@ func (m Model) renderBody(o RenderOpts) string {
 	if s == nil {
 		return renderEmptyLobby(m, o)
 	}
+	banner := ""
+	if m.mode() != ModeChallenge && m.mode() != ModeRules {
+		banner = m.challengeResultBanner(o)
+	}
 	switch m.mode() {
 	case ModeLobby:
-		return m.renderLobby(o)
+		return banner + m.renderLobby(o)
 	case ModePaused:
-		return m.renderPaused(o)
+		return banner + m.renderPaused(o)
 	case ModeFinished:
-		return m.renderFinished(o)
+		return banner + m.renderFinished(o)
 	case ModeColor:
-		return m.renderColorPanel(o)
+		return banner + m.renderColorPanel(o)
 	case ModeDrawnDecision:
-		return m.renderDrawDecision(o)
+		return banner + m.renderDrawDecision(o)
 	case ModeChallenge:
 		return m.renderChallenge(o)
 	case ModeRules:
 		return m.renderRules(o)
 	default:
-		return m.renderGame(o)
+		return banner + m.renderGame(o)
 	}
 }
 
@@ -155,7 +160,7 @@ func (m Model) renderHand(o RenderOpts) string {
 		if i == 9 {
 			num = "0"
 		}
-		line := fmt.Sprintf("  [%s] %s", num, cardText(c))
+		line := fmt.Sprintf("  %s [%s] %s", cardColorIcon(c, o.Color), num, cardText(c))
 		if playable[c.ID] {
 			line += "  <- 可出"
 			if o.Color {
@@ -165,6 +170,20 @@ func (m Model) renderHand(o RenderOpts) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// cardColorIcon renders a small color icon (a filled pip) for a hand card,
+// tinted to the card's color in color terminals, showing the card's color at a
+// glance (readme §8).
+func cardColorIcon(c game.CardView, colored bool) string {
+	sym := "●"
+	if c.Color == game.ColorWild {
+		sym = "◎"
+	}
+	if colored {
+		return lip.NewStyle().Foreground(unoColor(string(c.Color))).Render(sym)
+	}
+	return sym
 }
 
 func (m Model) renderDrawDecision(o RenderOpts) string {
@@ -180,13 +199,49 @@ func (m Model) renderDrawDecision(o RenderOpts) string {
 func (m Model) renderChallenge(o RenderOpts) string {
 	var b strings.Builder
 	resolver := "(未知)"
-	if m.Snap != nil && m.Snap.Challenge != nil && m.Snap.Challenge.ResolverPlayerID != "" {
-		resolver = m.displayName(m.Snap.Challenge.ResolverPlayerID)
+	trigger := ""
+	if m.Snap != nil && m.Snap.Challenge != nil {
+		if m.Snap.Challenge.ResolverPlayerID != "" {
+			resolver = m.displayName(m.Snap.Challenge.ResolverPlayerID)
+		}
+		trigger = m.Snap.Challenge.TriggerColor
 	}
 	b.WriteString("对手 " + resolver + " 打出了 +4\n")
-	b.WriteString("你被罚摸 4 张牌。你怀疑他出 +4 时手里其实有同色牌吗？\n\n")
+	colZh := colorNameZh(trigger)
+	if trigger == "" {
+		colZh = "未知"
+	}
+	b.WriteString("出 +4 前桌面颜色：" + colZh + "\n")
+	b.WriteString("你被罚摸 4 张牌。你怀疑他出 +4 时手里其实有同色的 " + colZh + " 牌吗？\n\n")
 	b.WriteString("  (c) 挑战 —— 若对方违规，他摸 4 张；若没有，你摸 6 张\n")
 	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
+	return b.String()
+}
+
+// challengeResultBanner renders the transient outcome of a +4 challenge.
+func (m Model) challengeResultBanner(o RenderOpts) string {
+	if m.Snap == nil || m.Snap.ChallengeRes == nil {
+		return ""
+	}
+	cr := m.Snap.ChallengeRes
+	resolver := m.displayName(cr.ResolverPlayerID)
+	challenger := m.displayName(cr.ChallengerPlayerID)
+	var b strings.Builder
+	if cr.Succeeded {
+		line := "挑战成功：" + resolver + " 违规，摸了 4 张牌；" + challenger + " 回合继续。"
+		if o.Color {
+			b.WriteString(successStyle(line) + "\n")
+		} else {
+			b.WriteString("  " + line + "\n")
+		}
+	} else {
+		line := "挑战失败：" + challenger + " 摸了 6 张牌并被跳过 （" + resolver + " 出 +4 合法）。"
+		if o.Color {
+			b.WriteString(failStyle(line) + "\n")
+		} else {
+			b.WriteString("  " + line + "\n")
+		}
+	}
 	return b.String()
 }
 

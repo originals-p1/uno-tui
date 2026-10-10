@@ -36,10 +36,22 @@ type PausedView struct {
 }
 
 // ChallengeView describes an ongoing +4 challenge (rule.md R13). It is
-// non-secret: it tells the UI who played the +4 and whose decision is pending.
+// non-secret: it tells the UI who played the +4, whose decision is pending, and
+// the active color that was in play when the +4 was dropped (the color the
+// resolver needed to (not) hold) so the challenger can decide.
 type ChallengeView struct {
 	ResolverPlayerID string `json:"resolver_player_id"`
 	YourDecision     bool   `json:"your_decision"` // true == it is your choice
+	TriggerColor     string `json:"trigger_color,omitempty"`
+}
+
+// ChallengeResult is a transient outcome banner describing how a +4 challenge
+// resolved (rule.md R13). It is non-secret and shown to all players until the
+// next in-turn action clears it.
+type ChallengeResult struct {
+	Succeeded          bool   `json:"succeeded"` // challenger's challenge succeeded
+	ResolverPlayerID   string `json:"resolver_player_id"`
+	ChallengerPlayerID string `json:"challenger_player_id"`
 }
 
 // GameView is the full personalized view of the table.
@@ -55,6 +67,7 @@ type GameView struct {
 	Phase          string            `json:"phase"`
 	DrawDecision   *DrawDecisionView `json:"draw_decision,omitempty"`
 	Challenge      *ChallengeView    `json:"challenge,omitempty"`
+	ChallengeRes   *ChallengeResult  `json:"challenge_result,omitempty"`
 	Paused         *PausedView       `json:"paused,omitempty"`
 	WinnerPlayerID string            `json:"winner_player_id,omitempty"`
 	EndReason      string            `json:"end_reason,omitempty"`
@@ -112,7 +125,12 @@ func (g *Game) BuildViewFor(playerID string) *GameView {
 		v.Challenge = &ChallengeView{
 			ResolverPlayerID: g.challengeResolver,
 			YourDecision:     playerID == g.currentPlayer().ID,
+			TriggerColor:     g.challengeTriggerColor,
 		}
+	}
+	if g.lastChallengeResult != nil {
+		cr := *g.lastChallengeResult
+		v.ChallengeRes = &cr
 	}
 	if g.Phase == PhasePaused {
 		v.Paused = g.pausedView()

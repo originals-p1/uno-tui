@@ -205,8 +205,56 @@ func TestView_Challenge(t *testing.T) {
 	if strings.Contains(out, "之前出过 +4") {
 		t.Fatalf("challenge copy is misleading about the criterion: %q", out)
 	}
-	if !strings.Contains(out, "同色牌") {
+	if !strings.Contains(out, "同色") {
 		t.Fatalf("challenge copy should mention having the same-color card: %q", out)
+	}
+}
+
+func TestView_ChallengeShowsTriggerColor(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseChallenge)
+		v.Challenge = &game.ChallengeView{ResolverPlayerID: "p1", YourDecision: true, TriggerColor: string(game.ColorRed)}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "红") || !strings.Contains(out, "同色") {
+		t.Fatalf("challenge view should show the trigger color: %q", out)
+	}
+}
+
+func TestView_HandCardsShowColorIcon(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	out := nm.(Model).render(RenderOpts{Color: false, Narrow: false})
+	// Wide hand should prefix each card with a pip icon ("●"/"◎").
+	if !strings.Contains(out, "●") {
+		t.Fatalf("hand cards lack color icon: %q", out)
+	}
+	// Wild cards use the hollow pip.
+	if !strings.Contains(out, "◎") {
+		t.Fatalf("wild card should use hollow pip icon: %q", out)
+	}
+}
+
+func TestView_ChallengeResultBanner(t *testing.T) {
+	for _, tt := range []struct {
+		name string
+		res  *game.ChallengeResult
+		want string
+	}{
+		{"success", &game.ChallengeResult{Succeeded: true, ResolverPlayerID: "p1", ChallengerPlayerID: "p0"}, "挑战成功"},
+		{"failure", &game.ChallengeResult{Succeeded: false, ResolverPlayerID: "p1", ChallengerPlayerID: "p0"}, "挑战失败"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			snap := testSnap(func(v *game.GameView) { v.ChallengeRes = tt.res })
+			m := newModel("p0")
+			nm, _ := m.Update(SnapshotMsg{View: snap})
+			out := nm.(Model).render(RenderOpts{Color: false})
+			if !strings.Contains(out, tt.want) {
+				t.Fatalf("banner missing %q: %q", tt.want, out)
+			}
+		})
 	}
 }
 
