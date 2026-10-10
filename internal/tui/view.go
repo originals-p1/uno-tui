@@ -297,6 +297,13 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  反转：%s\n", onOff(c.Cards.EnableReverse)))
 	b.WriteString(fmt.Sprintf("  +2：%s\n", onOff(c.Cards.EnableDrawTwo)))
 	b.WriteString(fmt.Sprintf("  自动 UNO：%s\n", onOff(c.HouseRules.AutoUNO)))
+	b.WriteString("\n功能牌说明：\n")
+	b.WriteString(fmt.Sprintf("  跳牌（%s）：出牌后跳过下一个玩家的回合\n", onOff(c.Cards.EnableSkip)))
+	b.WriteString(fmt.Sprintf("  反转（%s）：出牌后改变出牌方向\n", onOff(c.Cards.EnableReverse)))
+	b.WriteString(fmt.Sprintf("  +2（%s）：下一个玩家摸 2 张并跳过回合\n", onOff(c.Cards.EnableDrawTwo)))
+	b.WriteString(fmt.Sprintf("  万能（%s）：你指定下一种颜色\n", onOff(c.Cards.EnableWild)))
+	b.WriteString(fmt.Sprintf("  +4（%s）：你指定颜色，且下一个玩家摸 4 张\n", onOff(c.Cards.EnableDrawFour)))
+	b.WriteString(fmt.Sprintf("  +4 挑战（%s）：怀疑对方出 +4 时手里仍有该颜色牌，可挑战\n", onOff(c.Cards.ChallengeDrawFour)))
 	b.WriteString("\n  (v) 返回\n")
 	return b.String()
 }

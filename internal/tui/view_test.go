@@ -767,3 +767,17 @@ func TestHistory_ReplayDetail(t *testing.T) {
 		t.Fatalf("q should close history to finished, got %v", m.mode())
 	}
 }
+
+// The rules page explains what each action card does.
+func TestView_RulesExplainActionCards(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	nm, _ = nm.(Model).Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 1})
+	nm, _ = nm.(Model).Update(KeyMsg{Key: "v"})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	for _, want := range []string{"功能牌说明", "跳牌", "反转", "+2", "万能", "+4", "跳过下一个玩家", "下一个玩家摸 2 张", "改变出牌方向"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rules page missing %q: %q", want, out)
+		}
+	}
+}
