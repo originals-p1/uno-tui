@@ -487,6 +487,22 @@ func (m Model) renderColorPanel(o RenderOpts) string {
 		b.WriteString(fmt.Sprintf("  (%s) %s\n", k, colorNameZh(c)))
 	}
 	b.WriteString("\n  (q) 返回，取消出牌\n")
+	// Show the current color and the live hand for reference while deciding.
+	if m.Snap != nil {
+		cur := "未知"
+		if m.Snap.ActiveColor != "" {
+			cur = colorNameZh(m.Snap.ActiveColor)
+		}
+		b.WriteString(fmt.Sprintf("\n当前颜色：%s\n", cur))
+		b.WriteString("你的手牌：\n")
+		for i, c := range m.Snap.YourHand {
+			num := fmt.Sprintf("%d", i+1)
+			if i == 9 {
+				num = "0"
+			}
+			b.WriteString(fmt.Sprintf("  %s [%s] %s\n", cardColorIcon(c, o.Color), num, cardText(c)))
+		}
+	}
 	return b.String()
 }
 

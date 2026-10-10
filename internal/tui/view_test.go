@@ -615,3 +615,22 @@ func TestKey_WildColorCancelBack(t *testing.T) {
 		t.Fatalf("wild card should remain in hand after cancel")
 	}
 }
+
+// While choosing a wild color (ModeColor), the panel shows the current color
+// and a live copy of the hand for reference.
+func TestView_ColorPanelShowsColorAndHand(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm2, _ := m.Update(KeyMsg{Key: "3"}) // wild c2 -> ModeColor
+	m = nm2.(Model)
+	if m.mode() != ModeColor {
+		t.Fatalf("want ModeColor, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	for _, want := range []string{"当前颜色", "你的手牌", "R2", "Y9", "W*"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("color panel missing %q: %q", want, out)
+		}
+	}
+}
