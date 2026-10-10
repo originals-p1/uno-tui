@@ -1,0 +1,19 @@
+# binaries
+/uno
+/dist/
+*.exe
+*.test
+
+# Go build/test artifacts
+*.out
+/profile
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+.DS_Store
+
+# room key files
+*.room.key
+room.key
