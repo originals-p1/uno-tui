@@ -66,6 +66,12 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 	if m.edit && m.Config != nil {
 		return m.onConfigEditKey(k)
 	}
+	// While choosing a wild card color, q/esc cancels the choice (keeps the
+	// card) instead of the global q-as-back / quit behaviour.
+	if m.picking.Active && (k == "q" || k == "esc") {
+		m.picking = CardPick{}
+		return m, nil
+	}
 	if k == "q" {
 		// q is a context-aware back key: it closes the topmost overlay (help or
 		// rules view) before ever quitting the app.

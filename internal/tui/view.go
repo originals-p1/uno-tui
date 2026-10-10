@@ -486,6 +486,7 @@ func (m Model) renderColorPanel(o RenderOpts) string {
 		k := map[string]string{"red": "r", "yellow": "y", "green": "g", "blue": "b"}[c]
 		b.WriteString(fmt.Sprintf("  (%s) %s\n", k, colorNameZh(c)))
 	}
+	b.WriteString("\n  (q) 返回，取消出牌\n")
 	return b.String()
 }
 

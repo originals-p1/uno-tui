@@ -578,3 +578,40 @@ func TestView_HandFramedOnYourTurn(t *testing.T) {
 		t.Fatalf("idle player's hand should not be framed: %q", out)
 	}
 }
+
+// A wild card's color pick can be cancelled: pressing q backs out of ModeColor
+// without emitting any play action, and the card stays in hand.
+func TestKey_WildColorCancelBack(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm2, cmd := m.Update(KeyMsg{Key: "3"}) // wild c2 -> ModeColor
+	if cmd != nil {
+		t.Fatalf("wild press should not emit action yet")
+	}
+	m2 := nm2.(Model)
+	if m2.mode() != ModeColor {
+		t.Fatalf("want ModeColor, got %v", m2.mode())
+	}
+	// Cancel with q: no action, back to turn, hand still has the wild card.
+	nm3, cmd := m2.Update(KeyMsg{Key: "q"})
+	if cmd != nil {
+		t.Fatalf("cancel should not emit an action, got %v", cmd())
+	}
+	m3 := nm3.(Model)
+	if m3.mode() != ModeTurn {
+		t.Fatalf("want ModeTurn after cancel, got %v", m3.mode())
+	}
+	if m3.picking.Active {
+		t.Fatalf("picking should be cleared after cancel")
+	}
+	kept := false
+	for _, c := range m3.Snap.YourHand {
+		if c.ID == "c2" {
+			kept = true
+		}
+	}
+	if !kept {
+		t.Fatalf("wild card should remain in hand after cancel")
+	}
+}
