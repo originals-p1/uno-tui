@@ -94,12 +94,22 @@ jobs:
         with:
           path: dist
           merge-multiple: true
+      - name: List built binaries
+        run: ls -la dist
       - name: Generate checksums
         run: |
           cd dist
-          sha256sum * > SHA256SUMS.txt
+          sha256sum uno-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
       - name: Create Release
         uses: softprops/action-gh-release@v2
         with:
-          files: dist/*
+          files: |
+            dist/uno-windows-amd64.exe
+            dist/uno-linux-amd64
+            dist/uno-linux-arm64
+            dist/uno-darwin-amd64
+            dist/uno-darwin-arm64
+            dist/SHA256SUMS.txt
+          fail_on_unmatched_files: true
           generate_release_notes: true
