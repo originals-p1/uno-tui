@@ -50,6 +50,7 @@ const (
 	ActLeave
 	ActAcceptFour
 	ActChallengeFour
+	ActApplyConfig
 )
 
 // ActionMsg is the outcome of a user hotkey: a request for the network layer
@@ -60,6 +61,7 @@ type ActionMsg struct {
 	CardID      string
 	ChosenColor string
 	Ready       bool
+	Config      *game.Config // ActApplyConfig payload (a copy to submit)
 }
 
 // String returns a stable, machine-readable name for the action kind.
@@ -83,6 +85,8 @@ func (k ActionKind) String() string {
 		return "accept_four"
 	case ActChallengeFour:
 		return "challenge_four"
+	case ActApplyConfig:
+		return "apply_config"
 	default:
 		return "none"
 	}

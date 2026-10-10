@@ -17,6 +17,7 @@ const (
 	ModeFinished
 	ModeChallenge
 	ModeRules
+	ModeConfigEdit
 )
 
 // Model is the terminal UNO TUI model. It keeps only public, privacy-safe
@@ -33,6 +34,11 @@ type Model struct {
 	Config        *game.Config
 	ConfigVersion uint64
 	RulesLocked   bool
+
+	// host rule editor (ModeConfigEdit)
+	edit    bool // editing the config (host)
+	editSel int  // selected row in the editor
+	editMsg string
 
 	// picking records a wild card awaiting a color choice (ModeColor).
 	picking CardPick
@@ -65,6 +71,9 @@ func (m Model) mode() Mode {
 	s := m.Snap
 	if s == nil {
 		return ModeLobby
+	}
+	if m.edit && m.Config != nil {
+		return ModeConfigEdit
 	}
 	if m.rules && m.Config != nil {
 		return ModeRules

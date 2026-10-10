@@ -55,7 +55,7 @@ func (m Model) renderBody(o RenderOpts) string {
 		return renderEmptyLobby(m, o)
 	}
 	banner := ""
-	if m.mode() != ModeChallenge && m.mode() != ModeRules {
+	if m.mode() != ModeChallenge && m.mode() != ModeRules && m.mode() != ModeConfigEdit {
 		banner = m.challengeResultBanner(o)
 	}
 	switch m.mode() {
@@ -73,6 +73,8 @@ func (m Model) renderBody(o RenderOpts) string {
 		return m.renderChallenge(o)
 	case ModeRules:
 		return m.renderRules(o)
+	case ModeConfigEdit:
+		return m.renderConfigEdit(o)
 	default:
 		return banner + m.renderGame(o)
 	}
@@ -301,6 +303,154 @@ func firstPlayerZh(m string) string {
 	}
 }
 
+// cfgEditItem describes one editable rule and how to cycle (forward/backward)
+// among its values.
+type cfgEditItem struct {
+	label string
+	show  func(c *game.Config) string
+	next  func(c *game.Config)
+	prev  func(c *game.Config)
+}
+
+// cfgItems is the host-configurable surface (the v2-CLASSIC supported fields,
+// rule.md §13). Cycle order follows the order of the option slices below.
+var cfgItems = []cfgEditItem{
+	{
+		label: "初始手牌数",
+		show:  func(c *game.Config) string { return fmt.Sprintf("%d 张", c.Game.InitialHandSize) },
+		next:  func(c *game.Config) { c.Game.InitialHandSize = stepInt(c.Game.InitialHandSize, []int{5, 7, 10}, 1) },
+		prev:  func(c *game.Config) { c.Game.InitialHandSize = stepInt(c.Game.InitialHandSize, []int{5, 7, 10}, -1) },
+	},
+	{
+		label: "初始方向",
+		show:  func(c *game.Config) string { return dirNameZh(c.Game.InitialDir) },
+		next:  func(c *game.Config) { c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, 1) },
+		prev:  func(c *game.Config) { c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, -1) },
+	},
+	{
+		label: "先手",
+		show:  func(c *game.Config) string { return firstPlayerZh(c.Game.FirstPlayerMode) },
+		next:  func(c *game.Config) { c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, 1) },
+		prev:  func(c *game.Config) { c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, -1) },
+	},
+	toggleItem("跳牌", "skip"),
+	toggleItem("反转", "reverse"),
+	toggleItem("+2", "draw_two"),
+	toggleItem("万能牌", "wild"),
+	toggleItem("万能+4", "draw_four"),
+	toggleItem("+4 挑战", "challenge"),
+	toggleItem("动作牌可收尾", "finish"),
+	toggleItem("自动 UNO", "auto_uno"),
+}
+
+// toggleItem builds a boolean (开/关) editor row bound to one config alias.
+func toggleItem(label, alias string) cfgEditItem {
+	return cfgEditItem{
+		label: label,
+		show:  func(c *game.Config) string { return onOff(toggleGet(c, alias)) },
+		next:  func(c *game.Config) { toggleSet(c, alias, !toggleGet(c, alias)) },
+		prev:  func(c *game.Config) { toggleSet(c, alias, !toggleGet(c, alias)) },
+	}
+}
+
+func stepInt(cur int, opts []int, dir int) int {
+	for i, v := range opts {
+		if v == cur {
+			return opts[(i+dir+len(opts))%len(opts)]
+		}
+	}
+	return opts[0]
+}
+
+func stepChoice(cur string, opts []string, dir int) string {
+	for i, v := range opts {
+		if v == cur {
+			return opts[(i+dir+len(opts))%len(opts)]
+		}
+	}
+	return opts[0]
+}
+
+func (m Model) renderConfigEdit(o RenderOpts) string {
+	var b strings.Builder
+	b.WriteString("房主规则设置：\n\n")
+	b.WriteString(fmt.Sprintf("  规则版本 v%d%s\n\n", m.ConfigVersion, lockSuffix(m.RulesLocked)))
+	for i, it := range cfgItems {
+		cursor := "  "
+		if i == m.editSel {
+			cursor = "▶ "
+		}
+		line := fmt.Sprintf("%s%-12s %s", cursor, it.label, it.show(m.Config))
+		if o.Color {
+			if i == m.editSel {
+				line = currentPlayerStyle(line)
+			}
+		}
+		b.WriteString("  " + line + "\n")
+	}
+	if m.editMsg != "" {
+		b.WriteString("\n  " + m.editMsg + "\n")
+	}
+	b.WriteString("\n  ↑/↓ 选择项目    ←/→ 改变值    s=保存并应用    v=返回\n")
+	return b.String()
+}
+
+func (m *Model) cfgStepValue(dir int) {
+	if m.Config == nil || m.editSel < 0 || m.editSel >= len(cfgItems) {
+		return
+	}
+	it := cfgItems[m.editSel]
+	if dir < 0 {
+		it.prev(m.Config)
+	} else {
+		it.next(m.Config)
+	}
+	m.editMsg = "（未保存）"
+}
+
+func toggleGet(c *game.Config, alias string) bool {
+	switch alias {
+	case "skip":
+		return c.Cards.EnableSkip
+	case "reverse":
+		return c.Cards.EnableReverse
+	case "draw_two":
+		return c.Cards.EnableDrawTwo
+	case "wild":
+		return c.Cards.EnableWild
+	case "draw_four":
+		return c.Cards.EnableDrawFour
+	case "challenge":
+		return c.Cards.ChallengeDrawFour
+	case "finish":
+		return c.Cards.AllowActionFinish
+	case "auto_uno":
+		return c.HouseRules.AutoUNO
+	}
+	return false
+}
+
+func toggleSet(c *game.Config, alias string, v bool) {
+	switch alias {
+	case "skip":
+		c.Cards.EnableSkip = v
+	case "reverse":
+		c.Cards.EnableReverse = v
+	case "draw_two":
+		c.Cards.EnableDrawTwo = v
+	case "wild":
+		c.Cards.EnableWild = v
+	case "draw_four":
+		c.Cards.EnableDrawFour = v
+	case "challenge":
+		c.Cards.ChallengeDrawFour = v
+	case "finish":
+		c.Cards.AllowActionFinish = v
+	case "auto_uno":
+		c.HouseRules.AutoUNO = v
+	}
+}
+
 func (m Model) renderColorPanel(o RenderOpts) string {
 	var b strings.Builder
 	b.WriteString("为万能牌选择颜色：\n\n")
@@ -361,7 +511,9 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeChallenge:
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
 	case ModeRules:
-		return "按键：v=返回 h=帮助 q=退出"
+		return "按键：v=返回 e=编辑(房主) h=帮助 q=退出"
+	case ModeConfigEdit:
+		return "按键：↑/↓=选择 ←/→=改值 s=保存 v=返回 h=帮助 q=退出"
 	case ModePaused:
 		return "按键：h=帮助 q=退出"
 	case ModeFinished:
@@ -374,7 +526,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 func (m Model) renderHelp(o RenderOpts) string {
 	return `帮助
   h/?     开关本帮助
-  q       退出
+  q       返回（在帮助/规则界面上按 q 关闭；主界面按 q 退出）
   l       离开房间
 
 大厅等待：
@@ -397,7 +549,13 @@ func (m Model) renderHelp(o RenderOpts) string {
   a       接受并摸 4 张
 
 规则：
-  v       查看当前规则
+  v       查看当前规则（房主按 e 进入编辑）
+
+房主设置规则（v 后按 e）：
+  ↑/↓ (k/j)  选择项目
+  ←/→ (+/-)  改变项目值
+  s           保存并应用（开局前）
+  v           返回
 
 出牌的合法性均由服务端裁决。`
 }

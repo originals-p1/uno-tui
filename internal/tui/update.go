@@ -3,6 +3,7 @@ package tui
 import (
 	tea "charm.land/bubbletea/v2"
 	"terminal-uno/internal/game"
+	"terminal-uno/internal/protocol"
 )
 
 // Update implements tea.Model: it folds messages into the model and returns a
@@ -19,6 +20,16 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case ConfigMsg:
 		c := v.Config
 		m.Config, m.ConfigVersion, m.RulesLocked = &c, v.ConfigVersion, v.Locked
+		if m.editMsg == "已提交，等待确认…" {
+			// Server already confirmed via a fresh snapshot; leave editor.
+			m.edit = false
+			m.editMsg = ""
+		}
+		return m, nil
+	case ErrorMsg:
+		if v.Code == protocol.CodeConfigStale && m.edit {
+			m.editMsg = "规则版本已过期（别人改过），请按 s 重新保存。"
+		}
 		return m, nil
 	case KeyMsg:
 		return m.onKey(v.Key)
@@ -44,14 +55,30 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	if m.help {
+		// In the help overlay, q (and h/?) closes it; all other keys are ignored.
+		if k == "q" {
+			m.help = false
+		}
 		return m, nil
 	}
-	switch k {
-	case "q":
+	// Route editor keys before the generic hotkeys so 'v'/'q'/navigation all
+	// stay inside the config editor.
+	if m.edit && m.Config != nil {
+		return m.onConfigEditKey(k)
+	}
+	if k == "q" {
+		// q is a context-aware back key: it closes the topmost overlay (help or
+		// rules view) before ever quitting the app.
+		if m.rules {
+			m.rules = false
+			return m, nil
+		}
 		return m, tea.Quit
-	case "l":
+	}
+	if k == "l" {
 		return m, actCmd(ActLeave)
-	case "v":
+	}
+	if k == "v" {
 		m.rules = !m.rules
 		return m, nil
 	}
@@ -82,6 +109,14 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		case "a":
 			return m, actCmd(ActAcceptFour)
 		}
+	case ModeRules:
+		if k == "e" && m.IsHost && !m.RulesLocked {
+			m.edit = true
+			m.editSel = 0
+			m.editMsg = ""
+		}
+	case ModeConfigEdit:
+		return m.onConfigEditKey(k)
 	case ModeTurn:
 		if k == "d" || k == " " {
 			return m, actCmd(ActDraw)
@@ -106,6 +141,35 @@ func (m Model) onTurnNumber(k string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, actCmdCol(ActPlayCard, card.ID, "")
+}
+
+func (m Model) onConfigEditKey(k string) (tea.Model, tea.Cmd) {
+	switch k {
+	case "up", "k":
+		if m.editSel > 0 {
+			m.editSel--
+		}
+	case "down", "j":
+		if m.editSel < len(cfgItems)-1 {
+			m.editSel++
+		}
+	case "left", "-":
+		m.cfgStepValue(-1)
+	case "right", "+", " ":
+		m.cfgStepValue(1)
+	case "s", "enter":
+		if m.Config == nil {
+			m.editMsg = "无配置可保存"
+			break
+		}
+		cp := *m.Config
+		m.editMsg = "已提交，等待确认…"
+		return m, func() tea.Msg { return ActionMsg{Kind: ActApplyConfig, Config: &cp} }
+	case "v", "c", "q", "esc":
+		m.edit = false
+		m.editMsg = ""
+	}
+	return m, nil
 }
 
 func (m Model) onColorKey(k string) (tea.Model, tea.Cmd) {

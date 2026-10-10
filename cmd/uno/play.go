@@ -99,6 +99,11 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 		_, _ = c.Ready(true, rev)
 	case tui.ActStartGame:
 		_, _ = c.StartGame(rev)
+	case tui.ActApplyConfig:
+		if a.Config == nil {
+			break
+		}
+		_, _ = c.UpdateConfig(*a.Config, m.tui.ConfigVersion, rev)
 	case tui.ActLeave:
 		_, _ = c.Leave(rev)
 	}

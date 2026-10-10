@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	tea "charm.land/bubbletea/v2"
 	"terminal-uno/internal/game"
 )
 
@@ -277,6 +278,113 @@ func TestView_EachPlayerShowsHandCount(t *testing.T) {
 	lout := nm2.(Model).render(RenderOpts{Color: false})
 	if strings.Contains(lout, "0 张") {
 		t.Fatalf("lobby should not show hand counts: %q", lout)
+	}
+}
+
+func TestKey_QuitIsBackInOverlays(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm, _ = m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 0, Locked: false})
+	m = nm.(Model)
+
+	// Help overlay: q closes it rather than quitting.
+	nm, _ = m.Update(KeyMsg{Key: "h"})
+	m = nm.(Model)
+	if !m.help {
+		t.Fatal("h should open help")
+	}
+	nm, cmd := m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.help {
+		t.Fatal("q should close help")
+	}
+	if cmd != nil {
+		t.Fatalf("q inside help must not quit (cmd=%v)", cmd)
+	}
+
+	// Rules overlay: q closes it rather than quitting.
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model)
+	if m.mode() != ModeRules {
+		t.Fatalf("expected rules mode, got %v", m.mode())
+	}
+	nm, cmd = m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.mode() == ModeRules {
+		t.Fatal("q should close rules view")
+	}
+	if cmd != nil {
+		t.Fatalf("q inside rules must not quit (cmd=%v)", cmd)
+	}
+
+	// Config editor: q backs out to rules view (still not quitting).
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "e"})
+	m = nm.(Model)
+	if m.mode() != ModeConfigEdit {
+		t.Fatalf("expected config edit mode, got %v", m.mode())
+	}
+	nm, cmd = m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.mode() == ModeConfigEdit {
+		t.Fatal("q should exit config editor")
+	}
+	if cmd != nil {
+		t.Fatalf("q inside editor must not quit (cmd=%v)", cmd)
+	}
+
+	// Normal game screen: q really quits.
+	nm, cmd = m.Update(KeyMsg{Key: "v"}) // close rules to leave overlays
+	m = nm.(Model)
+	_, cmd = m.Update(KeyMsg{Key: "q"})
+	if cmd == nil {
+		t.Fatal("q in normal mode should quit")
+	}
+	if msg := cmd(); msg != nil {
+		if _, ok := msg.(tea.QuitMsg); !ok {
+			t.Fatalf("expected QuitMsg, got %T", msg)
+		}
+	}
+}
+
+func TestConfigEditor_NavigateCycleSave(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm, _ = m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 0, Locked: false})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model) // rules view
+	nm, _ = m.Update(KeyMsg{Key: "e"})
+	m = nm.(Model)
+	if m.mode() != ModeConfigEdit {
+		t.Fatalf("expected config edit mode, got %v", m.mode())
+	}
+	// Move down once to select initial_direction row (0-based: hand size is row 0,
+	// direction is row 1). Cycle it forward (顺时针 -> 逆时针).
+	nm, _ = m.Update(KeyMsg{Key: "j"})
+	m = nm.(Model)
+	if m.editSel != 1 {
+		t.Fatalf("editSel = %d, want 1", m.editSel)
+	}
+	nm, _ = m.Update(KeyMsg{Key: "right"})
+	m = nm.(Model)
+	if m.Config == nil || m.Config.Game.InitialDir != game.DirCounterClockwise {
+		t.Fatalf("direction did not cycle, got %q", m.Config.Game.InitialDir)
+	}
+	// Save -> an ActApplyConfig action carrying a copy of the edited config.
+	_, cmd := m.Update(KeyMsg{Key: "s"})
+	if cmd == nil {
+		t.Fatal("s should emit a save command")
+	}
+	got := cmd().(ActionMsg)
+	if got.Kind != ActApplyConfig || got.Config == nil {
+		t.Fatalf("save action wrong: %+v", got)
+	}
+	if got.Config.Game.InitialDir != game.DirCounterClockwise {
+		t.Fatalf("saved config should carry the edit, got %q", got.Config.Game.InitialDir)
 	}
 }
 
