@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"flag"
 	"fmt"
 	"io"
 	"net"
@@ -25,24 +24,73 @@ type cliOpts struct {
 	addr        string // join target (may lack port)
 }
 
-// parseFlags parses the shared flags for a subcommand. joinAddr is non-empty
-// only for the join subcommand.
+// parseFlags parses the shared flags for a subcommand, accepting the address
+// and flags in any order (readme §2 uses "join <addr> --name …"). A hand-rolled
+// scan is used because Go's flag package stops at the first positional arg,
+// which would drop flags placed after the address.
 func parseFlags(args []string, joined bool) (*cliOpts, error) {
-	fs := flag.NewFlagSet("uno", flag.ContinueOnError)
-	fs.SetOutput(io.Discard) // we render errors ourselves
-	port := fs.Int("port", defaultPort, "")
-	name := fs.String("name", "", "")
-	key := fs.String("room-key-file", "", "")
-	_ = fs.Parse(args)
-	o := &cliOpts{port: *port, name: *name, roomKeyFile: *key}
+	o := &cliOpts{port: defaultPort}
+	var positional []string
+	i := 0
+	for i < len(args) {
+		a := args[i]
+		switch {
+		case a == "--port":
+			v, err := flagValue(args, &i, "--port")
+			if err != nil {
+				return nil, err
+			}
+			n, err := strconv.Atoi(v)
+			if err != nil {
+				return nil, fmt.Errorf("invalid --port %q", v)
+			}
+			o.port = n
+		case strings.HasPrefix(a, "--port="):
+			n, err := strconv.Atoi(strings.TrimPrefix(a, "--port="))
+			if err != nil {
+				return nil, fmt.Errorf("invalid --port %q", a)
+			}
+			o.port = n
+		case a == "--name":
+			v, err := flagValue(args, &i, "--name")
+			if err != nil {
+				return nil, err
+			}
+			o.name = v
+		case strings.HasPrefix(a, "--name="):
+			o.name = strings.TrimPrefix(a, "--name=")
+		case a == "--room-key-file":
+			v, err := flagValue(args, &i, "--room-key-file")
+			if err != nil {
+				return nil, err
+			}
+			o.roomKeyFile = v
+		case strings.HasPrefix(a, "--room-key-file="):
+			o.roomKeyFile = strings.TrimPrefix(a, "--room-key-file=")
+		default:
+			if strings.HasPrefix(a, "-") && a != "-" {
+				return nil, fmt.Errorf("unknown flag %q", a)
+			}
+			positional = append(positional, a)
+		}
+		i++
+	}
 	if joined {
-		rest := fs.Args()
-		if len(rest) == 0 {
+		if len(positional) == 0 {
 			return nil, errors.New("join requires a server address")
 		}
-		o.addr = rest[0]
+		o.addr = positional[0]
 	}
 	return o, nil
+}
+
+// flagValue returns the value for a separated flag, advancing i past it.
+func flagValue(args []string, i *int, name string) (string, error) {
+	*i++
+	if *i >= len(args) {
+		return "", fmt.Errorf("%s requires a value", name)
+	}
+	return args[*i], nil
 }
 
 // joinAddress adds the default port when the target omits it (readme §7.2).

@@ -135,6 +135,34 @@ func TestParseFlags_DefaultPort(t *testing.T) {
 	}
 }
 
+func TestParseFlags_JoinFlagsAfterAddress(t *testing.T) {
+	// Regression: "join <addr> --name X --room-key-file Y" must parse the
+	// flags even though they follow the positional address.
+	o, err := parseFlags([]string{"192.168.126.130", "--name", "pppp", "--room-key-file", "k.key"}, true)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if o.addr != "192.168.126.130" {
+		t.Fatalf("addr = %q", o.addr)
+	}
+	if o.name != "pppp" {
+		t.Fatalf("name = %q", o.name)
+	}
+	if o.roomKeyFile != "k.key" {
+		t.Fatalf("roomKeyFile = %q", o.roomKeyFile)
+	}
+}
+
+func TestParseFlags_FlagsBeforeAddress(t *testing.T) {
+	o, err := parseFlags([]string{"--name", "Bob", "1.2.3.4", "--port", "9000"}, true)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if o.addr != "1.2.3.4" || o.name != "Bob" || o.port != 9000 {
+		t.Fatalf("unexpected parse: %+v", o)
+	}
+}
+
 func TestJoinAddress_DefaultPort(t *testing.T) {
 	cases := map[string]string{
 		"1.2.3.4":     "1.2.3.4:7777",
