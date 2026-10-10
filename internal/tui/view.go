@@ -290,8 +290,8 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  初始方向：%s\n", dirNameZh(c.Game.InitialDir)))
 	b.WriteString(fmt.Sprintf("  先手：%s\n", firstPlayerZh(c.Game.FirstPlayerMode)))
 	b.WriteString("  牌组：经典 108 张\n")
-	b.WriteString(fmt.Sprintf("  万能牌：%s\n", onOff(c.Cards.EnableWild)))
-	b.WriteString(fmt.Sprintf("  万能+4：%s\n", onOff(c.Cards.EnableDrawFour)))
+	b.WriteString(fmt.Sprintf("  万能：%s\n", onOff(c.Cards.EnableWild)))
+	b.WriteString(fmt.Sprintf("  +4：%s\n", onOff(c.Cards.EnableDrawFour)))
 	b.WriteString(fmt.Sprintf("  +4 挑战：%s\n", onOff(c.Cards.ChallengeDrawFour)))
 	b.WriteString(fmt.Sprintf("  跳牌：%s\n", onOff(c.Cards.EnableSkip)))
 	b.WriteString(fmt.Sprintf("  反转：%s\n", onOff(c.Cards.EnableReverse)))
@@ -377,8 +377,8 @@ var cfgItems = []cfgEditItem{
 	toggleItem("跳牌", "skip"),
 	toggleItem("反转", "reverse"),
 	toggleItem("+2", "draw_two"),
-	toggleItem("万能牌", "wild"),
-	toggleItem("万能+4", "draw_four"),
+	toggleItem("万能", "wild"),
+	toggleItem("+4", "draw_four"),
 	toggleItem("+4 挑战", "challenge"),
 	toggleItem("动作牌可收尾", "finish"),
 	toggleItem("自动 UNO", "auto_uno"),
@@ -494,7 +494,7 @@ func toggleSet(c *game.Config, alias string, v bool) {
 
 func (m Model) renderColorPanel(o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("为万能牌选择颜色：\n\n")
+	b.WriteString("为万能选择颜色：\n\n")
 	for _, c := range []string{"red", "yellow", "green", "blue"} {
 		k := map[string]string{"red": "r", "yellow": "y", "green": "g", "blue": "b"}[c]
 		b.WriteString(fmt.Sprintf("  (%s) %s\n", k, colorNameZh(c)))
@@ -681,7 +681,7 @@ func (m Model) renderHelp(o RenderOpts) string {
   p       打出刚摸的牌
   g       保留并过牌
 
-万能牌选色：
+万能选色：
   r/y/g/b 选择 红/黄/绿/蓝
 
 被罚 +4（挑战）：
@@ -798,7 +798,7 @@ func cardText(c game.CardView) string {
 	rank := string(c.Rank)
 	switch c.Rank {
 	case game.RankSkip:
-		rank = "跳过"
+		rank = "跳牌"
 	case game.RankReverse:
 		rank = "反转"
 	case game.RankDrawTwo:
