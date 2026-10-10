@@ -14,12 +14,16 @@
 
 三种方式任选：
 
-- **直接使用预构建二进制**（目录 `dist/`）：
-  - Windows：`uno-windows-amd64.exe` → 建议改名 `uno.exe`
-  - macOS（Apple Silicon）：`uno-darwin-arm64`
-  - Linux：`uno-linux-amd64`
+- **GitHub Release 发布页**（推荐）：维护者发布版本（打 `v*` 标签）后，GitHub
+  Actions 会自动为下列平台编译并上传到 Release 页，下载对应平台的可执行文件即可：
+  - Windows（x64）：`uno-windows-amd64.exe` → 建议改名 `uno.exe`
+  - Linux：`uno-linux-amd64`（x64）/ `uno-linux-arm64`
+  - macOS（Intel）：`uno-darwin-amd64`
+  - macOS（Apple Silicon / M 系列）：`uno-darwin-arm64`
+- **直接使用仓库内 `dist/` 目录**里已构建好的二进制（若已提交）。
 - **自行构建**（已安装 Go 工具链）看 [第 10 节](#10-自行构建)。
-- 对局记录文件 `games.json` 会生成在**可执行文件所在目录**。
+
+> 对局记录文件 `games.json` 会生成在**可执行文件所在目录**。
 
 ## 2. 快速开始（同一局域网，不需要密钥）
 
