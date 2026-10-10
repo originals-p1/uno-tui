@@ -1,0 +1,332 @@
+[
+  {
+    "seq": 1,
+    "time": "2026-10-10T16:33:03.5764213+08:00",
+    "winner": "ppp3",
+    "end_reason": "win",
+    "config_version": 0,
+    "events": [
+      {
+        "id": 1,
+        "room_revision": 5,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-008",
+          "color": "red",
+          "rank": "4"
+        },
+        "color": "red"
+      },
+      {
+        "id": 2,
+        "room_revision": 6,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-058",
+          "color": "green",
+          "rank": "4"
+        },
+        "color": "green"
+      },
+      {
+        "id": 3,
+        "room_revision": 7,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-059",
+          "color": "green",
+          "rank": "5"
+        },
+        "color": "green"
+      },
+      {
+        "id": 4,
+        "room_revision": 8,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-067",
+          "color": "green",
+          "rank": "9"
+        },
+        "color": "green"
+      },
+      {
+        "id": 5,
+        "room_revision": 9,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-052",
+          "color": "green",
+          "rank": "1"
+        },
+        "color": "green"
+      },
+      {
+        "id": 6,
+        "room_revision": 10,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-068",
+          "color": "green",
+          "rank": "9"
+        },
+        "color": "green"
+      },
+      {
+        "id": 7,
+        "room_revision": 11,
+        "type": "CARD_DRAWN",
+        "player_id": "p0002",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 8,
+        "room_revision": 12,
+        "type": "CARD_DRAWN",
+        "player_id": "p0001",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 9,
+        "room_revision": 13,
+        "type": "CARD_DRAWN",
+        "player_id": "p0002",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 10,
+        "room_revision": 14,
+        "type": "CARD_DRAWN",
+        "player_id": "p0001",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 11,
+        "room_revision": 15,
+        "type": "CARD_DRAWN",
+        "player_id": "p0002",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 12,
+        "room_revision": 16,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-063",
+          "color": "green",
+          "rank": "7"
+        },
+        "color": "green"
+      },
+      {
+        "id": 13,
+        "room_revision": 17,
+        "type": "CARD_DRAWN",
+        "player_id": "p0001",
+        "payload": {
+          "count": 1
+        }
+      },
+      {
+        "id": 14,
+        "room_revision": 18,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-014",
+          "color": "red",
+          "rank": "7"
+        },
+        "color": "red"
+      },
+      {
+        "id": 15,
+        "room_revision": 19,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-004",
+          "color": "red",
+          "rank": "2"
+        },
+        "color": "red"
+      },
+      {
+        "id": 16,
+        "room_revision": 20,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-078",
+          "color": "blue",
+          "rank": "2"
+        },
+        "color": "blue"
+      },
+      {
+        "id": 17,
+        "room_revision": 21,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-097",
+          "color": "blue",
+          "rank": "reverse"
+        },
+        "color": "blue"
+      },
+      {
+        "id": 18,
+        "room_revision": 21,
+        "type": "PLAYER_SKIPPED",
+        "player_id": "p0001",
+        "target_player_id": "p0002"
+      },
+      {
+        "id": 19,
+        "room_revision": 22,
+        "type": "CARD_PLAYED",
+        "player_id": "p0001",
+        "card": {
+          "id": "card-077",
+          "color": "blue",
+          "rank": "1"
+        },
+        "color": "blue"
+      },
+      {
+        "id": 20,
+        "room_revision": 23,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-099",
+          "color": "blue",
+          "rank": "draw_two"
+        },
+        "color": "blue"
+      },
+      {
+        "id": 21,
+        "room_revision": 23,
+        "type": "CARD_DRAWN",
+        "player_id": "p0001",
+        "payload": {
+          "count": 2
+        }
+      },
+      {
+        "id": 22,
+        "room_revision": 23,
+        "type": "PLAYER_SKIPPED",
+        "player_id": "p0002",
+        "target_player_id": "p0001"
+      },
+      {
+        "id": 23,
+        "room_revision": 24,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-095",
+          "color": "blue",
+          "rank": "skip"
+        },
+        "color": "blue"
+      },
+      {
+        "id": 24,
+        "room_revision": 24,
+        "type": "PLAYER_SKIPPED",
+        "player_id": "p0002",
+        "target_player_id": "p0001"
+      },
+      {
+        "id": 25,
+        "room_revision": 25,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-107",
+          "color": "wild",
+          "rank": "wild_draw_four"
+        },
+        "color": "red"
+      },
+      {
+        "id": 26,
+        "room_revision": 25,
+        "type": "UNO_CALLED",
+        "player_id": "p0002"
+      },
+      {
+        "id": 27,
+        "room_revision": 25,
+        "type": "FOUR_CHALLENGE",
+        "player_id": "p0002",
+        "target_player_id": "p0001"
+      },
+      {
+        "id": 28,
+        "room_revision": 26,
+        "type": "CARD_DRAWN",
+        "player_id": "p0001",
+        "payload": {
+          "count": 6
+        }
+      },
+      {
+        "id": 29,
+        "room_revision": 26,
+        "type": "CHALLENGE_FAILED",
+        "player_id": "p0001"
+      },
+      {
+        "id": 30,
+        "room_revision": 27,
+        "type": "CARD_PLAYED",
+        "player_id": "p0002",
+        "card": {
+          "id": "card-023",
+          "color": "red",
+          "rank": "draw_two"
+        },
+        "color": "red"
+      },
+      {
+        "id": 31,
+        "room_revision": 27,
+        "type": "WINNER",
+        "player_id": "p0002"
+      }
+    ],
+    "players": [
+      {
+        "name": "tz",
+        "card_count": 12
+      },
+      {
+        "name": "ppp3",
+        "card_count": 0,
+        "winner": true
+      }
+    ]
+  }
+]
