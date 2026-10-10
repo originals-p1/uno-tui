@@ -64,10 +64,14 @@ jobs:
         with:
           go-version-file: go.mod
       - name: Build ${{ matrix.label }}
+        shell: bash
+        env:
+          GOOS: ${{ matrix.goos }}
+          GOARCH: ${{ matrix.goarch }}
+          CGO_ENABLED: "0"
         run: |
           mkdir -p dist
-          GOOS=${{ matrix.goos }} GOARCH=${{ matrix.goarch }} CGO_ENABLED=0 \
-            go build -trimpath -ldflags "-s -w" -o dist/${{ matrix.name }} ./cmd/uno
+          go build -trimpath -ldflags "-s -w" -o dist/${{ matrix.name }} ./cmd/uno
       - name: Upload artifact
         uses: actions/upload-artifact@v4
         with:
