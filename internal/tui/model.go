@@ -18,6 +18,7 @@ const (
 	ModeChallenge
 	ModeRules
 	ModeConfigEdit
+	ModeHistory
 )
 
 // Model is the terminal UNO TUI model. It keeps only public, privacy-safe
@@ -42,6 +43,12 @@ type Model struct {
 
 	// picking records a wild card awaiting a color choice (ModeColor).
 	picking CardPick
+
+	// match history (persisted locally, ModeHistory).
+	history            []MatchRecord
+	hist               bool // history modal open
+	matchSeq            int64
+	recordedLastEventID uint64
 }
 
 // CardPick is a wild card that needs a color selection.
@@ -58,9 +65,9 @@ type ownCard struct {
 	Playable bool
 }
 
-// NewModel builds a fresh lobby TUI.
+// NewModel builds a fresh lobby TUI, loading any local match history.
 func NewModel(name string) Model {
-	return Model{Name: name, help: false}
+	return Model{Name: name, help: false, history: loadHistory()}
 }
 
 // Init satisfies tea.Model; no startup command.
@@ -79,6 +86,9 @@ func (m Model) mode() Mode {
 	// shows "尚无配置" so pressing "v" always gives visible feedback.
 	if m.rules {
 		return ModeRules
+	}
+	if m.hist {
+		return ModeHistory
 	}
 	if s.Phase == string(game.PhaseLobby) {
 		return ModeLobby

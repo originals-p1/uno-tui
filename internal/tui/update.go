@@ -13,6 +13,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case SnapshotMsg:
 		m.applySnapshot(v.View)
+		m.recordFinished()
 		return m, nil
 	case HelpMsg:
 		m.help = !m.help
@@ -49,6 +50,25 @@ func (m *Model) applySnapshot(v *game.GameView) {
 	}
 }
 
+// recordFinished persists the outcome of a completed game exactly once, keyed
+// by the final event id (which is unique to the winning move). Silence on any
+// error: history is best-effort and must never block rendering.
+func (m *Model) recordFinished() {
+	v := m.Snap
+	if v == nil || v.Phase != string(game.PhaseFinished) || v.WinnerPlayerID == "" {
+		return
+	}
+	if v.LastEventID != 0 && v.LastEventID == m.recordedLastEventID {
+		return // already recorded this finish
+	}
+	m.matchSeq++
+	rec := recordFromView(v, m.matchSeq)
+	m.history = appendAndSave(m.history, rec)
+	if v.LastEventID != 0 {
+		m.recordedLastEventID = v.LastEventID
+	}
+}
+
 func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 	if k == "h" || k == "?" {
 		m.help = !m.help
@@ -72,9 +92,17 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		m.picking = CardPick{}
 		return m, nil
 	}
+	if k == "t" {
+		m.hist = !m.hist
+		return m, nil
+	}
 	if k == "q" {
-		// q is a context-aware back key: it closes the topmost overlay (help or
-		// rules view) before ever quitting the app.
+		// q is a context-aware back key: it closes the topmost overlay (help,
+		// rules view, or history) before ever quitting the app.
+		if m.hist {
+			m.hist = false
+			return m, nil
+		}
 		if m.rules {
 			m.rules = false
 			return m, nil

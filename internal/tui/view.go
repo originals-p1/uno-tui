@@ -73,6 +73,8 @@ func (m Model) renderBody(o RenderOpts) string {
 		return m.renderChallenge(o)
 	case ModeRules:
 		return m.renderRules(o)
+	case ModeHistory:
+		return m.renderHistory(o)
 	case ModeConfigEdit:
 		return m.renderConfigEdit(o)
 	default:
@@ -543,7 +545,48 @@ func (m Model) renderFinished(o RenderOpts) string {
 	if m.Snap.EndReason != "" {
 		b.WriteString("  （" + m.Snap.EndReason + "）\n")
 	}
-	b.WriteString("\n  (l) 离开房间\n")
+	b.WriteString("\n本局结果（第 " + fmt.Sprint(m.matchSeq) + " 局）：\n")
+	for _, p := range m.Snap.Players {
+		mark := "  "
+		if p.ID == m.Snap.WinnerPlayerID {
+			mark = "★ "
+		}
+		b.WriteString(fmt.Sprintf("%s%s  %d 张\n", mark, p.Name, p.CardCount))
+	}
+	if m.history != nil {
+		b.WriteString(fmt.Sprintf("\n已记录 %d 局对局，按 t 查看历史。\n", len(m.history)))
+	}
+	b.WriteString("\n  (l) 离开房间   (t) 对局记录\n")
+	return b.String()
+}
+
+// renderHistory lists locally persisted completed matches, newest first.
+func (m Model) renderHistory(o RenderOpts) string {
+	var b strings.Builder
+	b.WriteString("对局记录（本机 " + historyFilePath() + "）：\n")
+	if len(m.history) == 0 {
+		b.WriteString("  还没有完成的对局。\n\n  (q) 返回\n")
+		return b.String()
+	}
+	for i := range m.history {
+		rec := &m.history[i]
+		b.WriteString(fmt.Sprintf("  第 %d 局  %s\n", rec.Seq, rec.Time.Format("01-02 15:04")))
+		b.WriteString("    胜者：" + rec.Winner + "\n")
+		if rec.EndReason != "" {
+			b.WriteString("    原因：" + rec.EndReason + "\n")
+		}
+		for _, p := range rec.Players {
+			mark := "    "
+			if p.Winner {
+				mark = "    ★ "
+			}
+			b.WriteString(fmt.Sprintf("%s%s  %d 张\n", mark, p.Name, p.CardCount))
+		}
+		if i < len(m.history)-1 {
+			b.WriteString("\n")
+		}
+	}
+	b.WriteString("\n  (q) 返回\n")
 	return b.String()
 }
 
@@ -566,7 +609,9 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModePaused:
 		return "按键：h=帮助 q=退出"
 	case ModeFinished:
-		return "按键：l=离开 h=帮助 q=退出"
+		return "按键：l=离开 t=对局记录 h=帮助 q=退出"
+	case ModeHistory:
+		return "按键：q=返回 h=帮助"
 	default:
 		return "按键：1-9=出牌 d=摸牌 h=帮助 q=退出"
 	}
@@ -599,6 +644,9 @@ func (m Model) renderHelp(o RenderOpts) string {
 
 规则：
   v       查看当前规则（房主按 e 进入编辑）
+
+对局记录：
+  t       查看本机历史对局（q 返回）
 
 房主设置规则（v 后按 e）：
   ↑/↓ (k/j)  选择项目

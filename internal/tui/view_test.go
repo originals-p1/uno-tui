@@ -634,3 +634,72 @@ func TestView_ColorPanelShowsColorAndHand(t *testing.T) {
 		}
 	}
 }
+
+// A finished game is persisted as a match record exactly once, and the
+// history modal lists it.
+func TestHistory_RecordsFinishedGame(t *testing.T) {
+	m := newModel("p0")
+	fin := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseFinished)
+		v.WinnerPlayerID = "p0"
+		v.LastEventID = 99
+		v.EndReason = "先出完牌"
+	})
+	nm, cmd := m.Update(SnapshotMsg{View: fin})
+	if cmd != nil {
+		t.Fatalf("finished snapshot should not emit a command")
+	}
+	m = nm.(Model)
+	if len(m.history) != 1 {
+		t.Fatalf("want 1 record after finish, got %d", len(m.history))
+	}
+	r := m.history[0]
+	if r.Winner != "Alice" || r.EndReason != "先出完牌" {
+		t.Fatalf("unexpected record: %+v", r)
+	}
+	if len(r.Players) != 2 {
+		t.Fatalf("want 2 players in record, got %d", len(r.Players))
+	}
+
+	// Re-delivering the same finish must not duplicate the record.
+	nm, _ = m.Update(SnapshotMsg{View: fin})
+	m = nm.(Model)
+	if len(m.history) != 1 {
+		t.Fatalf("finish recorded twice: got %d records", len(m.history))
+	}
+
+	// t opens the history modal, render shows the winner, q closes it.
+	nm, _ = m.Update(KeyMsg{Key: "t"})
+	m = nm.(Model)
+	if m.mode() != ModeHistory {
+		t.Fatalf("want ModeHistory, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "胜者：Alice") {
+		t.Fatalf("history missing winner: %q", out)
+	}
+	nm, _ = m.Update(KeyMsg{Key: "q"})
+	m = nm.(Model)
+	if m.mode() != ModeFinished {
+		t.Fatalf("q should close history back to finished, got %v", m.mode())
+	}
+}
+
+// The finished screen previews the just-finished match summary.
+func TestView_FinishedShowsSummary(t *testing.T) {
+	m := newModel("p0")
+	fin := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseFinished)
+		v.WinnerPlayerID = "p0"
+		v.LastEventID = 5
+	})
+	nm, _ := m.Update(SnapshotMsg{View: fin})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "Alice 获胜") {
+		t.Fatalf("finished screen missing winner: %q", out)
+	}
+	if !strings.Contains(out, "★ Alice") {
+		t.Fatalf("finished screen missing winner star: %q", out)
+	}
+	return
+}
