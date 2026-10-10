@@ -31,19 +31,26 @@ type RecordPlayer struct {
 }
 
 // historyFileOverride redirects the history database location (used by tests
-// to avoid writing to the real per-user file).
+// to avoid writing into the executable's directory).
 var historyFileOverride string
 
-// historyFilePath is the per-user history database (~/.uno/games.json).
+// historyFilePath is the match-history database: a games.json sibling of the
+// running executable, so it travels with the program (works identically for
+// Windows/macOS/Linux). Falls back to the current directory, then to a
+// bare filename, if the executable location cannot be determined.
 func historyFilePath() string {
 	if historyFileOverride != "" {
 		return historyFileOverride
 	}
-	home, err := os.UserHomeDir()
-	if err != nil || home == "" {
-		home = "."
+	if exe, err := os.Executable(); err == nil {
+		if dir := filepath.Dir(exe); dir != "" {
+			return filepath.Join(dir, "games.json")
+		}
 	}
-	return filepath.Join(home, ".uno", "games.json")
+	if cwd, err := os.Getwd(); err == nil {
+		return filepath.Join(cwd, "games.json")
+	}
+	return "games.json"
 }
 
 // loadHistory reads the local match history, newest first. It never fails
