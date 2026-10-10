@@ -781,3 +781,53 @@ func TestView_RulesExplainActionCards(t *testing.T) {
 		}
 	}
 }
+
+// TestBell_OnTurnOnce verifies the terminal bell rings exactly once per time
+// the ball moves to the local player, never repeatedly on the same turn, and
+// never while the game is over/paused/in the lobby.
+func TestBell_OnTurnOnce(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap() // CurrentPlayer = "p0" (my turn), PhaseTurn
+
+	if cmd := (&m).bellOnTurn(v); cmd == nil {
+		t.Fatal("expected bell on my turn")
+	}
+	if cmd := (&m).bellOnTurn(v); cmd != nil {
+		t.Fatal("bell must not repeat on the same turn")
+	}
+
+	// Turn passes away -> resets the latch.
+	v.CurrentPlayer = "p1"
+	if cmd := (&m).bellOnTurn(v); cmd != nil {
+		t.Fatal("no bell when it is not my turn")
+	}
+	// And back to me -> rings again.
+	v.CurrentPlayer = "p0"
+	if cmd := (&m).bellOnTurn(v); cmd == nil {
+		t.Fatal("expected bell when control returns to me")
+	}
+
+	// Finished: no bell even if CurrentPlayer happens to be me.
+	m2 := newModel("p0")
+	v2 := testSnap()
+	v2.Phase = string(game.PhaseFinished)
+	if cmd := (&m2).bellOnTurn(v2); cmd != nil {
+		t.Fatal("no bell on a finished game")
+	}
+
+	// Paused: no bell.
+	m3 := newModel("p0")
+	v3 := testSnap()
+	v3.Paused = &game.PausedView{DisconnectedPlayerIDs: []string{"p1"}, EarliestDeadline: "x"}
+	if cmd := (&m3).bellOnTurn(v3); cmd != nil {
+		t.Fatal("no bell while paused")
+	}
+
+	// Lobby: no bell.
+	m4 := newModel("p0")
+	v4 := testSnap()
+	v4.Phase = string(game.PhaseLobby)
+	if cmd := (&m4).bellOnTurn(v4); cmd != nil {
+		t.Fatal("no bell in the lobby")
+	}
+}

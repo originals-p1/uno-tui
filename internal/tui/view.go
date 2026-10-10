@@ -676,6 +676,7 @@ func (m Model) renderHelp(o RenderOpts) string {
 你的回合：
   1-9/0   打出对应的那张牌
   d/空格  摸一张牌
+  轮到你 / 需作 +4 决定时，终端会响铃提醒 (\a)
 
 摸牌后：
   p       打出刚摸的牌

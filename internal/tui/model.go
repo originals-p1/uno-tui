@@ -28,8 +28,8 @@ type Model struct {
 	MyID   string
 	IsHost bool
 
-	Snap *game.GameView
-	help bool
+	Snap  *game.GameView
+	help  bool
 	rules bool
 
 	Config        *game.Config
@@ -45,11 +45,16 @@ type Model struct {
 	picking CardPick
 
 	// match history (persisted locally, ModeHistory).
-	history            []MatchRecord
-	hist               bool // history modal open
-	histSel            int  // selected record index (>=0 => detail/replay view)
-	matchSeq           int64
+	history             []MatchRecord
+	hist                bool // history modal open
+	histSel             int  // selected record index (>=0 => detail/replay view)
+	matchSeq            int64
 	recordedLastEventID uint64
+
+	// rung tracks whether the terminal bell has fired for the current *active*
+	// ownership (your turn / your +4 decision). It is cleared whenever the ball
+	// is no longer in your court, so the bell rings exactly once per transition.
+	rung bool
 }
 
 // CardPick is a wild card that needs a color selection.

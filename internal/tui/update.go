@@ -1,6 +1,8 @@
 package tui
 
 import (
+	"os"
+
 	tea "charm.land/bubbletea/v2"
 	"terminal-uno/internal/game"
 	"terminal-uno/internal/protocol"
@@ -14,7 +16,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SnapshotMsg:
 		m.applySnapshot(v.View)
 		m.recordFinished()
-		return m, nil
+		return m, m.bellOnTurn(v.View)
 	case HelpMsg:
 		m.help = !m.help
 		return m, nil
@@ -47,6 +49,38 @@ func (m *Model) applySnapshot(v *game.GameView) {
 	// A new personal turn begins once we are current and no color pick needed.
 	if v.CurrentPlayer == m.MyID {
 		// (color pick persists until resolved by the player)
+	}
+}
+
+// bellOnTurn rings the terminal bell (BEL, \a) exactly once when control moves
+// to the local player — a new turn or a pending +4 challenge decision — and not
+// while the game is over, paused, or still in the lobby. It writes the bell to
+// stderr so it never corrupts the bubbletea-rendered view.
+func (m *Model) bellOnTurn(v *game.GameView) tea.Cmd {
+	if v == nil {
+		return nil
+	}
+	if v.WinnerPlayerID != "" || v.Phase == string(game.PhaseFinished) ||
+		v.Paused != nil || v.Phase == string(game.PhaseLobby) {
+		m.rung = false
+		return nil
+	}
+	if v.CurrentPlayer != m.MyID {
+		m.rung = false
+		return nil
+	}
+	if m.rung {
+		return nil // already beeped for this turn
+	}
+	m.rung = true
+	return bellCmd()
+}
+
+// bellCmd emits a terminal bell and returns no message.
+func bellCmd() tea.Cmd {
+	return func() tea.Msg {
+		_, _ = os.Stderr.Write([]byte("\a"))
+		return nil
 	}
 }
 
