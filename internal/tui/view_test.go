@@ -200,6 +200,14 @@ func TestView_Challenge(t *testing.T) {
 	if !strings.Contains(out, "+4") || !strings.Contains(out, "Bob") {
 		t.Fatalf("challenge view wrong: %q", out)
 	}
+	// The on-screen copy must reflect the actual challenge criterion (whether the
+	// +4 resolver held the active color), NOT a history of previous +4 plays.
+	if strings.Contains(out, "之前出过 +4") {
+		t.Fatalf("challenge copy is misleading about the criterion: %q", out)
+	}
+	if !strings.Contains(out, "同色牌") {
+		t.Fatalf("challenge copy should mention having the same-color card: %q", out)
+	}
 }
 
 func TestView_Rules(t *testing.T) {

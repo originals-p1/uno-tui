@@ -184,7 +184,7 @@ func (m Model) renderChallenge(o RenderOpts) string {
 		resolver = m.displayName(m.Snap.Challenge.ResolverPlayerID)
 	}
 	b.WriteString("对手 " + resolver + " 打出了 +4\n")
-	b.WriteString("你被罚摸 4 张牌。你怀疑他之前出过 +4 吗？\n\n")
+	b.WriteString("你被罚摸 4 张牌。你怀疑他出 +4 时手里其实有同色牌吗？\n\n")
 	b.WriteString("  (c) 挑战 —— 若对方违规，他摸 4 张；若没有，你摸 6 张\n")
 	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
 	return b.String()
