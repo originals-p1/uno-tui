@@ -170,6 +170,11 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			return m, actCmd(ActDraw)
 		}
 		return m.onTurnNumber(k)
+	case ModeFinished:
+		// b / back: return the finished room to a fresh lobby for another round.
+		if k == "b" || k == "backspace" {
+			return m, actCmd(ActRematch)
+		}
 	}
 	return m, nil
 }

@@ -32,6 +32,7 @@ const (
 	CodeConfigStale      = "CONFIG_STALE"
 	CodeNotWaitingPhase  = "NOT_WAITING_PHASE"
 	CodeConfigInvalid    = "CONFIG_INVALID"
+	CodeNotFinished      = "NOT_FINISHED"
 )
 
 // Kind categorizes a client request the room processes.
@@ -43,6 +44,7 @@ const (
 	KindReady      Kind = "ready"
 	KindStartGame  Kind = "start_game"
 	KindLeave      Kind = "leave"
+	KindRematch    Kind = "rematch"
 	KindDisconnect Kind = "disconnect"
 
 	KindStatus Kind = "status"
@@ -393,6 +395,8 @@ func (r *Room) process(req *Request) *Outcome {
 		return r.processStartGame(req)
 	case KindLeave:
 		return r.processLeave(req)
+	case KindRematch:
+		return r.processRematch(req)
 	case KindDisconnect:
 		return r.processDisconnect(req)
 	case KindUpdateConfig:
@@ -677,6 +681,36 @@ func (r *Room) processLeave(req *Request) *Outcome {
 		return &Outcome{ErrCode: CodeInvalidSession, Message: "unauthenticated session"}
 	}
 	return r.minorLeave(playerID)
+}
+
+// processRematch returns a finished room to a fresh, playable lobby so the same
+// seated players can immediately start another round without quitting or
+// reconnecting (rule.md §16 "返回大厅/再开一局"). Any seated player may trigger
+// it, but only once the game has actually finished.
+func (r *Room) processRematch(req *Request) *Outcome {
+	playerID := r.sessionPlayer(req)
+	if playerID == "" {
+		return &Outcome{ErrCode: CodeInvalidSession, Message: "unauthenticated session"}
+	}
+	if _, ok := r.players[playerID]; !ok {
+		return &Outcome{ErrCode: CodeInvalidSession, Message: "unknown player"}
+	}
+	if !r.started || r.game == nil || r.game.Phase != game.PhaseFinished {
+		return &Outcome{ErrCode: CodeNotFinished, Message: "only a finished game can return to the lobby"}
+	}
+	// Reset to a fresh lobby: drop the finished game, unlock the rules, and
+	// clear any pause/disconnect state from the round. All seated players stay.
+	r.game = nil
+	r.started = false
+	r.configLocked = false
+	r.disconnected = map[string]time.Time{}
+	r.prevPhase = ""
+	r.revision++
+	return &Outcome{Commit: &Commit{
+		Revision:  r.revision,
+		Requester: r.lobbyView(playerID),
+		Views:     r.lobbyViews(),
+	}}
 }
 
 func (r *Room) processDisconnect(req *Request) *Outcome {

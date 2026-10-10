@@ -48,6 +48,7 @@ const (
 	ActReady
 	ActStartGame
 	ActLeave
+	ActRematch
 	ActAcceptFour
 	ActChallengeFour
 	ActApplyConfig
@@ -81,6 +82,8 @@ func (k ActionKind) String() string {
 		return "start_game"
 	case ActLeave:
 		return "leave"
+	case ActRematch:
+		return "rematch"
 	case ActAcceptFour:
 		return "accept_four"
 	case ActChallengeFour:

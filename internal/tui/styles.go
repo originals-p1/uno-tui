@@ -55,3 +55,13 @@ func successStyle(text string) string {
 func failStyle(text string) string {
 	return lip.NewStyle().Foreground(lip.Color("196")).Bold(true).Render(text)
 }
+
+// unoStyle renders a highly-visible "UNO!" marker: bold bright-yellow text on a
+// red background so a player calling UNO stands out at a glance.
+func unoStyle(text string) string {
+	return lip.NewStyle().
+		Bold(true).
+		Foreground(lip.Color("220")).
+		Background(lip.Color("196")).
+		Render(text)
+}

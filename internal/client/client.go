@@ -307,6 +307,11 @@ func (c *Client) Leave(expected uint64) (*Response, error) {
 	return c.Send(protocol.TypeLeave, &expected, protocol.Empty{})
 }
 
+// Rematch returns a finished game back to a fresh lobby for another round.
+func (c *Client) Rematch(expected uint64) (*Response, error) {
+	return c.Send(protocol.TypeRematch, &expected, protocol.Empty{})
+}
+
 func (c *Client) send(m *protocol.Message) error {
 	c.mu.Lock()
 	ch := c.writeCh

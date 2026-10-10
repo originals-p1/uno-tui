@@ -118,6 +118,8 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 		_, _ = c.UpdateConfig(*a.Config, m.tui.ConfigVersion, rev)
 	case tui.ActLeave:
 		_, _ = c.Leave(rev)
+	case tui.ActRematch:
+		_, _ = c.Rematch(rev)
 	}
 }
 

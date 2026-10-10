@@ -330,3 +330,53 @@ func TestRoom_UnknownSession(t *testing.T) {
 		t.Fatalf("revision changed for invalid session: %d", r.revision)
 	}
 }
+
+// --- Task: rematch / return to lobby after a finished game ---
+
+func TestRoom_RematchReturnsToLobby(t *testing.T) {
+	r := testRoom(t, 0)
+	// Simulate a finished game with rules locked.
+	r.game.Phase = game.PhaseFinished
+	r.game.WinnerPlayerID = "p0"
+	r.configLocked = true
+
+	out := r.Submit(NewRequest(KindRematch, "s0", "re-1", exp(0), game.Action{}))
+	if !out.OK() {
+		t.Fatalf("rematch outcome = %+v, want OK", out)
+	}
+	if r.game != nil {
+		t.Fatalf("game should be reset to nil, got %+v", r.game)
+	}
+	if r.started {
+		t.Fatalf("started should be false after rematch")
+	}
+	if r.configLocked {
+		t.Fatalf("rules should be unlocked after rematch")
+	}
+	if out.Commit.Requester == nil || out.Commit.Requester.Phase != "lobby" {
+		t.Fatalf("requester should get a lobby view, got %+v", out.Commit.Requester)
+	}
+	if len(out.Commit.Views) != 2 {
+		t.Fatalf("both seated players should get a lobby view, got %d", len(out.Commit.Views))
+	}
+}
+
+func TestRoom_RematchNotAllowedMidGame(t *testing.T) {
+	r := testRoom(t, 0) // game is in progress (PhaseTurn), not finished
+	out := r.Submit(NewRequest(KindRematch, "s0", "re-2", exp(0), game.Action{}))
+	if out.OK() || out.ErrCode != CodeNotFinished {
+		t.Fatalf("mid-game rematch outcome = %+v, want NOT_FINISHED", out)
+	}
+	if r.game == nil || !r.started {
+		t.Fatalf("mid-game rematch must not reset the room: started=%v game=%v", r.started, r.game != nil)
+	}
+}
+
+func TestRoom_RematchUnknownSession(t *testing.T) {
+	r := testRoom(t, 0)
+	r.game.Phase = game.PhaseFinished
+	out := r.Submit(NewRequest(KindRematch, "nosuch", "re-3", exp(0), game.Action{}))
+	if out.OK() || out.ErrCode != CodeInvalidSession {
+		t.Fatalf("unknown-session rematch outcome = %+v, want INVALID_SESSION", out)
+	}
+}

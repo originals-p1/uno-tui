@@ -563,7 +563,7 @@ func (m Model) renderFinished(o RenderOpts) string {
 	if m.history != nil {
 		b.WriteString(fmt.Sprintf("\n已记录 %d 局对局，按 t 查看历史。\n", len(m.history)))
 	}
-	b.WriteString("\n  (l) 离开房间   (t) 对局记录\n")
+	b.WriteString("\n  (b) 返回大厅，再开一局   (t) 对局记录   (l) 离开房间\n")
 	return b.String()
 }
 
@@ -655,7 +655,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModePaused:
 		return "按键：h=帮助 q=退出"
 	case ModeFinished:
-		return "按键：l=离开 t=对局记录 h=帮助 q=退出"
+		return "按键：b=返回大厅再开一局 t=对局记录 l=离开 h=帮助 q=退出"
 	case ModeHistory:
 		return "按键：1-9/0=展开回放 q=返回 h=帮助"
 	default:
@@ -695,6 +695,10 @@ func (m Model) renderHelp(o RenderOpts) string {
   t       查看本机历史对局（q 返回）
   1-9/0   在历史里展开某一局的事件回放（q 返回列表）
 
+对局结束：
+  b       返回大厅，再开一局（无需退出程序）
+  l       离开房间
+
 房主设置规则（v 后按 e）：
   ↑/↓ (k/j)  选择项目
   ←/→ (+/-)  改变项目值
@@ -713,7 +717,14 @@ func playerLine(m Model, p game.PlayerView, o RenderOpts) string {
 		parts = append(parts, "（房主）")
 	}
 	if p.UNO {
-		parts = append(parts, "UNO!")
+		tag := "UNO!"
+		if o.Unicode {
+			tag = "★UNO!"
+		}
+		if o.Color {
+			tag = unoStyle(tag)
+		}
+		parts = append(parts, tag)
 	}
 	if m.inGame() {
 		parts = append(parts, fmt.Sprintf("%d 张", p.CardCount))
