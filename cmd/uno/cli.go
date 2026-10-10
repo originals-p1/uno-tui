@@ -100,9 +100,18 @@ func runHost(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return fmt.Errorf("connect to own room: %w", err)
 	}
 	defer local.Close()
-	fmt.Fprintf(out, "connected as host player %q (waiting; Ctrl-C to quit)\n", o.name)
+	fmt.Fprintf(out, "connected as host player %q\n", o.name)
 
-	<-ctx.Done()
+	if isTerminal(os.Stdout) {
+		if err := runInteractive(local, o.name); err != nil {
+			return err
+		}
+	} else {
+		select {
+		case <-ctx.Done():
+		case <-local.ConnectionLost():
+		}
+	}
 	fmt.Fprintln(out, "shutting down")
 	return nil
 }
@@ -141,9 +150,18 @@ func runJoin(ctx context.Context, args []string, out, errOut io.Writer) error {
 		return fmt.Errorf("connect: %w", err)
 	}
 	defer c.Close()
-	fmt.Fprintf(out, "connected to %s as player %q (Ctrl-C to quit)\n", target, o.name)
+	fmt.Fprintf(out, "connected to %s as player %q\n", target, o.name)
 
-	<-ctx.Done()
+	if isTerminal(os.Stdout) {
+		if err := runInteractive(c, o.name); err != nil {
+			return err
+		}
+	} else {
+		select {
+		case <-ctx.Done():
+		case <-c.ConnectionLost():
+		}
+	}
 	fmt.Fprintln(out, "disconnecting")
 	return nil
 }

@@ -669,3 +669,72 @@ GOOS=darwin  GOARCH=arm64 go build -o dist/uno-darwin-arm64 ./cmd/uno
 4. 抓取一局服务端向两个客户端发送的应用层消息，确认任何客户端均未收到其他玩家手牌、重连 token 或房间密钥。
 5. 模拟请求响应丢失、断线重连、慢客户端、非法帧和宽限期超时，房间无重复动作、死锁、panic 或 goroutine 泄漏。
 6. README 中所有 CLI 示例与实际 `uno --help` 一致，LAN/ZeroTier、防火墙、密钥交换和常见故障均有可执行说明。
+
+## 17. 运行与排障说明
+
+### 构建
+
+```bash
+go build -o uno ./cmd/uno          # 当前平台
+GOOS=windows GOARCH=amd64 go build -o uno.exe ./cmd/uno
+GOOS=darwin  GOARCH=arm64 go build -o uno-darwin ./cmd/uno
+GOOS=linux   GOARCH=amd64 go build -o uno-linux ./cmd/uno
+```
+
+### 开房（host）
+
+```bash
+# 生成密钥文件（不存在则创建，权限 0600）
+./uno host --port 7777 --name Alice --room-key-file ./room.key
+
+# 不指定密钥文件：随机 32 字节密钥仅显示一次，请私下告知加入者
+./uno host --port 7777 --name Alice
+```
+
+房主既运行服务器，也作为 `127.0.0.1` 上的本地玩家加入。监听于 `0.0.0.0`，
+启动时会打印本机应共享给同事/队友的地址与端口。
+
+### 加入（join）
+
+```bash
+./uno join <房主IP>:7777 --name Bob --room-key-file ./room.key   # 缺省端口自动补 7777
+./uno join 192.168.1.10 --name Bob --room-key-file ./room.key    # 端口缺省
+```
+
+未提供 `--room-key-file` 时，若在交互终端会以不回显方式提示输入密钥；非交互
+环境则报错，请改用密钥文件。
+
+### 快捷键（TUI）
+
+- `h`/`?` 帮助，`q` 退出，`l` 离开房间
+- 大厅：`r`/空格 准备，`s` 开赛（仅房主）
+- 回合：`1-9`/`0` 出牌，`d`/空格 摸牌
+- 摸牌决策：`p` 出摸到的牌，`g` 留下并过
+- 通配选色：`r`/`y`/`g`/`b`
+- `NO_COLOR=1` 禁用颜色；窄终端自动压缩手牌；窄/无 Unicode 终端使用 ASCII 符号
+
+### 防火墙 / 网络
+
+- host 监听 `0.0.0.0`。跨机器需在 host 机器防火墙放行所用 TCP 端口
+  （如 `7777`）。
+- 只有已加入同一局域网/ZeroTier 网络、并持有相同房间密钥的玩家可加入。
+- 房间密钥绝不作为命令行参数、绝不写入日志；请通过私密渠道交换。
+
+### 常见故障
+
+| 现象 | 处理 |
+| --- | --- |
+| `join` 提示缺密钥且无终端 | 使用 `--room-key-file`；交互环境可直接输入 |
+| 连接被拒 | 确认 host 已开房、端口一致、防火墙放行 |
+| `AUTH_FAILED` | 房间密钥不匹配，或重连 token 已失效 |
+| `ROOM_FULL` | 房间已满（最多 4 人）|
+| 断线后等待 | 房主进程或 60 秒宽限期结束前可凭重连 token 自动恢复 |
+| 手牌顺序/快捷键 | 手牌稳定按原始顺序显示；数字键对应行号 |
+
+### 验证命令
+
+```bash
+go test ./... -count=1
+go test -race ./... -count=1
+go vet ./...
+```

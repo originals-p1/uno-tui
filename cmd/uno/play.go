@@ -1,0 +1,113 @@
+package main
+
+import (
+	tea "charm.land/bubbletea/v2"
+	"terminal-uno/internal/client"
+	"terminal-uno/internal/game"
+	"terminal-uno/internal/tui"
+)
+
+// appModel couples the Bubble Tea TUI to the connected client. Network events
+// (client snapshots) are pushed in as tui.SnapshotMsg; user hotkeys become
+// tui.ActionMsg which are forwarded to the client (whose legality the TUI never
+// decides).
+type appModel struct {
+	tui tui.Model
+	c   *client.Client
+}
+
+func newAppModel(c *client.Client, name string) appModel {
+	id := c.Identity()
+	tm := tui.NewModel(name)
+	tm.MyID = id.PlayerID
+	tm.IsHost = id.IsHost
+	return appModel{tui: tm, c: c}
+}
+
+// Init satisfies tea.Model and starts pumping client snapshots.
+func (m appModel) Init() tea.Cmd {
+	go func() {
+		// The snapshots arrive via the client callbacks set by the caller
+		// (they send into the program); nothing to spin up here.
+	}()
+	return nil
+}
+
+func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	switch v := msg.(type) {
+	case tea.KeyPressMsg:
+		return m.forward(tui.KeyMsg{Key: normalizeKey(v)})
+	case tui.SnapshotMsg, tui.HelpMsg, tui.ErrorMsg:
+		return m.forward(v)
+	case tui.ActionMsg:
+		go m.dispatch(v)
+		return m, nil
+	default:
+		return m, nil
+	}
+}
+
+// forward folds a tui message into the embedded model, preserving any command.
+func (m appModel) forward(msg tea.Msg) (tea.Model, tea.Cmd) {
+	inner, cmd := m.tui.Update(msg)
+	m.tui = inner.(tui.Model)
+	return m, cmd
+}
+
+func (m appModel) View() tea.View { return m.tui.View() }
+
+// normalizeKey translates a bubbletea key into the TUI's normalized key string.
+func normalizeKey(k tea.KeyPressMsg) string {
+	s := k.String()
+	switch s {
+	case "space":
+		return " "
+	case "ctrl+c":
+		return "ctrl_c"
+	}
+	return s
+}
+
+// dispatch forwards a user action request to the client. All legality is
+// enforced by the server; errors just fall through to the next snapshot.
+func (m appModel) dispatch(a tui.ActionMsg) {
+	c := m.c
+	rev := c.Revision()
+	col := func(s string) *game.Color {
+		if s == "" {
+			return nil
+		}
+		cc := game.Color(s)
+		return &cc
+	}
+	switch a.Kind {
+	case tui.ActPlayCard:
+		_, _ = c.SendAction(game.Action{Type: game.ActionPlayCard, CardID: a.CardID, ChosenColor: col(a.ChosenColor)}, rev)
+	case tui.ActDraw:
+		_, _ = c.SendAction(game.Action{Type: game.ActionDrawCard}, rev)
+	case tui.ActPlayDrawn:
+		_, _ = c.SendAction(game.Action{Type: game.ActionPlayDrawn, ChosenColor: col(a.ChosenColor)}, rev)
+	case tui.ActPassDrawn:
+		_, _ = c.SendAction(game.Action{Type: game.ActionPassDrawn}, rev)
+	case tui.ActReady:
+		_, _ = c.Ready(true, rev)
+	case tui.ActStartGame:
+		_, _ = c.StartGame(rev)
+	case tui.ActLeave:
+		_, _ = c.Leave(rev)
+	}
+}
+
+// runInteractive launches the Bubble Tea program with the client wired in. It
+// blocks until the user quits and then returns.
+func runInteractive(c *client.Client, name string) error {
+	m := newAppModel(c, name)
+	p := tea.NewProgram(m)
+	c.OnSnapshot = func(v *game.GameView) { p.Send(tui.SnapshotMsg{View: v}) }
+	c.OnError = func(code, message string) { p.Send(tui.ErrorMsg{Code: code, Message: message}) }
+	_, err := p.Run()
+	if err != nil {
+		return err
+	}
+	return nil
+}
