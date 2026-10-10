@@ -2,6 +2,7 @@ package game
 
 import (
 	"fmt"
+	"math"
 	"math/rand"
 	"testing"
 )
@@ -197,5 +198,57 @@ func TestRankHelpers(t *testing.T) {
 	}
 	if IsWild(RankSkip) {
 		t.Error("skip should not be wild")
+	}
+}
+
+// TestShuffle_UniformDistribution verifies shuffle() is unbiased: over many
+// trials from fresh seeds, every card is equally likely to land at every
+// position. A chi-square goodness-of-fit over the position matrix guards
+// against biased or unshuffled decks (regression for dealing randomness).
+func TestShuffle_UniformDistribution(t *testing.T) {
+	const n = 108
+	const trials = 20000
+	// counts[card][pos]
+	counts := make([][]int, n)
+	for i := range counts {
+		counts[i] = make([]int, n)
+	}
+	idx := make([]int, n)
+	for trial := 0; trial < trials; trial++ {
+		for i := range idx {
+			idx[i] = i
+		}
+		shuffleInts(idx, rand.NewSource(int64(trial)))
+		for pos, card := range idx {
+			counts[card][pos]++
+		}
+	}
+	// Chi-square over the whole matrix. Expected count per cell is
+	// trials/n ~ 185, df = (n-1)^2.
+	exp := float64(trials) / float64(n)
+	var chi float64
+	for _, row := range counts {
+		for _, c := range row {
+			diff := float64(c) - exp
+			chi += diff * diff / exp
+		}
+	}
+	df := (n - 1) * (n - 1)
+	// Mean = df, std ≈ sqrt(2*df). Allow 5 std dev; a biased shuffle that
+	// jams cards into a few positions would exceed this by an enormous margin.
+	limit := float64(df) + 5*math.Sqrt(2*float64(df))
+	if chi > limit {
+		t.Fatalf("chi-square %.1f exceeds tolerance %.1f: shuffle biased", chi, limit)
+	}
+}
+
+// shuffleInts implements the same Fisher-Yates as shuffle(), operating on
+// integer indices so the position distribution can be measured directly
+// without reconstructing card identity.
+func shuffleInts(a []int, src rand.Source) {
+	r := rand.New(src)
+	for i := len(a) - 1; i > 0; i-- {
+		j := r.Intn(i + 1)
+		a[i], a[j] = a[j], a[i]
 	}
 }

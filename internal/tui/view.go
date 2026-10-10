@@ -703,13 +703,13 @@ func cardText(c game.CardView) string {
 	rank := string(c.Rank)
 	switch c.Rank {
 	case game.RankSkip:
-		rank = "SKIP"
+		rank = "跳过"
 	case game.RankReverse:
-		rank = "REV"
+		rank = "反转"
 	case game.RankDrawTwo:
 		rank = "+2"
 	case game.RankWild:
-		rank = "*"
+		rank = "万能"
 	case game.RankWildDrawFour:
 		rank = "+4"
 	}

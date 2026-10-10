@@ -104,13 +104,13 @@ func TestView_TurnRedTwoAndStableOrder(t *testing.T) {
 	if !strings.Contains(out, "R2") {
 		t.Fatalf("turn view missing red 2: %q", out)
 	}
-	// Stable original hand order: R2 then Y9 then W* stay in order.
-	iR2, iY9, iW := strings.Index(out, "R2"), strings.Index(out, "Y9"), strings.Index(out, "W*")
+	// Stable original hand order: R2 then Y9 then W万能 stay in order.
+	iR2, iY9, iW := strings.Index(out, "R2"), strings.Index(out, "Y9"), strings.Index(out, "W万能")
 	if iR2 < 0 || iY9 < 0 || iW < 0 {
-		t.Fatalf("hand cards not rendered: R2=%d Y9=%d W*=%d out=%q", iR2, iY9, iW, out)
+		t.Fatalf("hand cards not rendered: R2=%d Y9=%d W万能=%d out=%q", iR2, iY9, iW, out)
 	}
 	if !(iR2 < iY9 && iY9 < iW) {
-		t.Fatalf("hand order not preserved: R2=%d Y9=%d W*=%d", iR2, iY9, iW)
+		t.Fatalf("hand order not preserved: R2=%d Y9=%d W万能=%d", iR2, iY9, iW)
 	}
 	if !strings.Contains(out, "你的手牌") {
 		t.Fatalf("missing own-hand heading: %q", out)
@@ -628,7 +628,7 @@ func TestView_ColorPanelShowsColorAndHand(t *testing.T) {
 		t.Fatalf("want ModeColor, got %v", m.mode())
 	}
 	out := m.render(RenderOpts{Color: false})
-	for _, want := range []string{"当前颜色", "你的手牌", "R2", "Y9", "W*"} {
+	for _, want := range []string{"当前颜色", "你的手牌", "R2", "Y9", "W万能"} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("color panel missing %q: %q", want, out)
 		}
