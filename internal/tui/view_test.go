@@ -58,7 +58,7 @@ func runKey(t *testing.T, m Model, k string) (Model, string) {
 func TestView_Lobby(t *testing.T) {
 	m := newModel("p0")
 	out := m.render(RenderOpts{Color: false})
-	if !strings.Contains(out, "Waiting to join") {
+	if !strings.Contains(out, "正在连接大厅") {
 		t.Fatalf("lobby view missing waiting line: %q", out)
 	}
 }
@@ -81,16 +81,16 @@ func TestView_LobbySnapshotShowsPlayersAndNoTopcard(t *testing.T) {
 	m := newModel("p1")
 	nm, _ := m.Update(SnapshotMsg{View: lo})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "Players:") {
+	if !strings.Contains(out, "玩家：") {
 		t.Fatalf("lobby snapshot missing Players roster: %q", out)
 	}
 	if !strings.Contains(out, "Alice") || !strings.Contains(out, "Bob") {
 		t.Fatalf("lobby roster missing players: %q", out)
 	}
-	if !strings.Contains(out, "(you)") {
+	if !strings.Contains(out, "（你）") {
 		t.Fatalf("lobby roster missing (you) marker: %q", out)
 	}
-	if strings.Contains(out, "Your hand") {
+	if strings.Contains(out, "你的手牌") {
 		t.Fatalf("lobby should not render a hand: %q", out)
 	}
 }
@@ -111,10 +111,10 @@ func TestView_TurnRedTwoAndStableOrder(t *testing.T) {
 	if !(iR2 < iY9 && iY9 < iW) {
 		t.Fatalf("hand order not preserved: R2=%d Y9=%d W*=%d", iR2, iY9, iW)
 	}
-	if !strings.Contains(out, "Your hand") {
+	if !strings.Contains(out, "你的手牌") {
 		t.Fatalf("missing own-hand heading: %q", out)
 	}
-	if !strings.Contains(out, "playable") {
+	if !strings.Contains(out, "可出") {
 		t.Fatalf("missing playable hint: %q", out)
 	}
 }
@@ -185,7 +185,7 @@ func TestView_GameOver(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: snap})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "wins") || !strings.Contains(out, "Bob") {
+	if !strings.Contains(out, "获胜") || !strings.Contains(out, "Bob") {
 		t.Fatalf("game-over view wrong: %q", out)
 	}
 }
@@ -197,7 +197,7 @@ func TestView_PausedDisconnect(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: snap})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "Paused") || !strings.Contains(out, "Bob") {
+	if !strings.Contains(out, "已暂停") || !strings.Contains(out, "Bob") {
 		t.Fatalf("paused view wrong: %q", out)
 	}
 }
@@ -206,7 +206,7 @@ func TestView_Help(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(HelpMsg{})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "HELP") {
+	if !strings.Contains(out, "帮助") {
 		t.Fatalf("help view missing: %q", out)
 	}
 }

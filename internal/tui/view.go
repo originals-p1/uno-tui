@@ -41,7 +41,7 @@ func (m Model) render(o RenderOpts) string {
 }
 
 func (m Model) renderHeader(o RenderOpts) string {
-	title := "TERMINAL UNO"
+	title := "终端 UNO"
 	if o.Color {
 		title = titleStyle(title)
 	}
@@ -71,8 +71,8 @@ func (m Model) renderBody(o RenderOpts) string {
 
 func renderEmptyLobby(m Model, o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("Waiting to join…\n")
-	b.WriteString("  (r) ready/sit   (s) start (host)   (l) leave   (h) help\n")
+	b.WriteString("正在连接大厅…\n")
+	b.WriteString("  (r) 准备/就坐   (s) 开始（房主）   (l) 离开   (h) 帮助\n")
 	return b.String()
 }
 
@@ -81,14 +81,14 @@ func renderEmptyLobby(m Model, o RenderOpts) string {
 // separately from the game view.
 func (m Model) renderLobby(o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("Players:\n")
+	b.WriteString("玩家：\n")
 	if m.Snap != nil {
 		for _, p := range m.Snap.Players {
 			b.WriteString("  " + playerLine(m, p, o) + "\n")
 		}
 	}
-	b.WriteString("\nWaiting for players to be ready…\n")
-	b.WriteString("  (r) ready   (s) start (host)   (l) leave\n")
+	b.WriteString("\n等待玩家准备…\n")
+	b.WriteString("  (r) 准备   (s) 开始（房主）   (l) 离开\n")
 	return b.String()
 }
 
@@ -96,7 +96,7 @@ func (m Model) renderGame(o RenderOpts) string {
 	var b strings.Builder
 	s := m.Snap
 	// Players summary.
-	b.WriteString("Players:\n")
+	b.WriteString("玩家：\n")
 	for _, p := range s.Players {
 		b.WriteString("  " + playerLine(m, p, o) + "\n")
 	}
@@ -111,8 +111,8 @@ func (m Model) renderGame(o RenderOpts) string {
 			dir = "<-"
 		}
 	}
-	b.WriteString(fmt.Sprintf("\nTurn: %s (%s)\n", m.displayName(s.CurrentPlayer), dir))
-	b.WriteString(fmt.Sprintf("Top: %s   Active color: %s\n\n", cardText(s.TopCard), s.ActiveColor))
+	b.WriteString(fmt.Sprintf("\n轮到：%s （%s）\n", m.displayName(s.CurrentPlayer), dir))
+	b.WriteString(fmt.Sprintf("桌面：%s   当前颜色：%s\n\n", cardText(s.TopCard), colorNameZh(s.ActiveColor)))
 	// Own hand (stable order).
 	b.WriteString(m.renderHand(o))
 	return b.String()
@@ -129,12 +129,12 @@ func (m Model) renderHand(o RenderOpts) string {
 	}
 	var b strings.Builder
 	if m.mode() == ModeTurn {
-		b.WriteString("Your hand (number to play, d to draw):\n")
+		b.WriteString("你的手牌（按数字出牌，d 摸牌）：\n")
 	} else {
-		b.WriteString("Your hand:\n")
+		b.WriteString("你的手牌：\n")
 	}
 	if len(hand) == 0 {
-		b.WriteString("  (empty)\n")
+		b.WriteString("  （空）\n")
 		return b.String()
 	}
 	if o.Narrow {
@@ -153,7 +153,7 @@ func (m Model) renderHand(o RenderOpts) string {
 		}
 		line := fmt.Sprintf("  [%s] %s", num, cardText(c))
 		if playable[c.ID] {
-			line += "  <- playable"
+			line += "  <- 可出"
 			if o.Color {
 				line = playableStyle(line)
 			}
@@ -165,27 +165,27 @@ func (m Model) renderHand(o RenderOpts) string {
 
 func (m Model) renderDrawDecision(o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("You drew a card:\n\n")
+	b.WriteString("你摸到一张牌：\n\n")
 	if m.Snap != nil && m.Snap.DrawDecision != nil {
 		b.WriteString("  " + cardText(m.Snap.DrawDecision.Card) + "\n")
 	}
-	b.WriteString("\n  (p) play it   (g) keep & pass\n")
+	b.WriteString("\n  (p) 打出该牌   (g) 保留并过\n")
 	return b.String()
 }
 
 func (m Model) renderColorPanel(o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("Choose a color for the wild card:\n\n")
+	b.WriteString("为万能牌选择颜色：\n\n")
 	for _, c := range []string{"red", "yellow", "green", "blue"} {
 		k := map[string]string{"red": "r", "yellow": "y", "green": "g", "blue": "b"}[c]
-		b.WriteString(fmt.Sprintf("  (%s) %s\n", k, c))
+		b.WriteString(fmt.Sprintf("  (%s) %s\n", k, colorNameZh(c)))
 	}
 	return b.String()
 }
 
 func (m Model) renderPaused(o RenderOpts) string {
 	var b strings.Builder
-	b.WriteString("Paused — a player disconnected\n\n")
+	b.WriteString("已暂停 —— 有玩家掉线\n\n")
 	if m.Snap != nil && m.Snap.Paused != nil {
 		who := m.Snap.Paused.DisconnectedPlayerIDs
 		names := make([]string, 0, len(who))
@@ -196,10 +196,10 @@ func (m Model) renderPaused(o RenderOpts) string {
 			b.WriteString("  " + strings.Join(names, ", ") + "\n")
 		}
 		if m.Snap.Paused.EarliestDeadline != "" {
-			b.WriteString("  deadline: " + m.Snap.Paused.EarliestDeadline + "\n")
+			b.WriteString("  截止时间：" + m.Snap.Paused.EarliestDeadline + "\n")
 		}
 	}
-	b.WriteString("\nWaiting for them to reconnect…\n")
+	b.WriteString("\n等待其重新连接…\n")
 	return b.String()
 }
 
@@ -210,13 +210,13 @@ func (m Model) renderFinished(o RenderOpts) string {
 	}
 	w := m.displayName(m.Snap.WinnerPlayerID)
 	if w == "" {
-		w = "someone"
+		w = "某人"
 	}
-	b.WriteString("Game over — " + w + " wins!\n")
+	b.WriteString("游戏结束 — " + w + " 获胜！\n")
 	if m.Snap.EndReason != "" {
-		b.WriteString("  (" + m.Snap.EndReason + ")\n")
+		b.WriteString("  （" + m.Snap.EndReason + "）\n")
 	}
-	b.WriteString("\n  (l) leave room\n")
+	b.WriteString("\n  (l) 离开房间\n")
 	return b.String()
 }
 
@@ -225,63 +225,64 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeHelp:
 		return ""
 	case ModeLobby:
-		return "keys: r=ready s=start l=leave h=help q=quit"
+		return "按键：r=准备 s=开始 l=离开 h=帮助 q=退出"
 	case ModeColor:
-		return "keys: r/y/g/b=color h=help q=quit"
+		return "按键：r/y/g/b=选色 h=帮助 q=退出"
 	case ModeDrawnDecision:
-		return "keys: p=play-drawn g=pass h=help q=quit"
+		return "按键：p=打出该牌 g=保留 h=帮助 q=退出"
 	case ModePaused:
-		return "keys: h=help q=quit"
+		return "按键：h=帮助 q=退出"
 	case ModeFinished:
-		return "keys: l=leave h=help q=quit"
+		return "按键：l=离开 h=帮助 q=退出"
 	default:
-		return "keys: 1-9=play d=draw h=help q=quit"
+		return "按键：1-9=出牌 d=摸牌 h=帮助 q=退出"
 	}
 }
 
 func (m Model) renderHelp(o RenderOpts) string {
-	return `HELP
-  h/?     toggle this help
-  q       quit
-  l       leave room
+	return `帮助
+  h/?     开关本帮助
+  q       退出
+  l       离开房间
 
-While waiting (lobby):
-  r/space ready   s start (host only)
+大厅等待：
+  r/空格  准备/就坐
+  s       开始游戏（仅房主）
 
-On your turn:
-  1-9/0   play that card
-  d/space draw a card
+你的回合：
+  1-9/0   打出对应的那张牌
+  d/空格  摸一张牌
 
-After drawing (decision):
-  p       play the drawn card
-  g       keep it and pass
+摸牌后：
+  p       打出刚摸的牌
+  g       保留并过牌
 
-Choosing a wild color:
-  r/y/g/b pick red/yellow/green/blue
+万能牌选色：
+  r/y/g/b 选择 红/黄/绿/蓝
 
-All card legality is enforced by the server.`
+出牌的合法性均由服务端裁决。`
 }
 
 func playerLine(m Model, p game.PlayerView, o RenderOpts) string {
 	parts := []string{p.Name}
 	if p.ID == m.MyID {
-		parts = append(parts, "(you)")
+		parts = append(parts, "（你）")
 	}
 	if p.IsHost {
-		parts = append(parts, "(host)")
+		parts = append(parts, "（房主）")
 	}
 	if p.UNO {
 		parts = append(parts, "UNO!")
 	}
 	if len(p.Name) == 0 || p.Name == p.ID {
-		parts = append(parts, fmt.Sprintf("%d cards", p.CardCount))
+		parts = append(parts, fmt.Sprintf("%d 张", p.CardCount))
 	}
-	status := "ready"
+	status := "已准备"
 	if !p.Ready {
-		status = "waiting"
+		status = "等待"
 	}
 	if !p.Connected {
-		status = "offline"
+		status = "离线"
 	}
 	mark := "·"
 	if o.Unicode {
@@ -318,6 +319,27 @@ func (m Model) displayName(id string) string {
 		}
 	}
 	return id
+}
+
+// colorNameZh maps an active-color value to its Chinese label.
+func colorNameZh(c string) string {
+	switch c {
+	case "red":
+		return "红"
+	case "yellow":
+		return "黄"
+	case "green":
+		return "绿"
+	case "blue":
+		return "蓝"
+	case "wild":
+		return "万能"
+	default:
+		if c == "" {
+			return "-"
+		}
+		return c
+	}
 }
 
 // cardText renders a single card as "R2" style text (red 2). Wild shows "(W)".
