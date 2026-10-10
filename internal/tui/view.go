@@ -124,8 +124,13 @@ func (m Model) renderGame(o RenderOpts) string {
 	}
 	b.WriteString(fmt.Sprintf("\n轮到：%s （%s）\n", m.displayName(s.CurrentPlayer), dir))
 	b.WriteString(fmt.Sprintf("桌面：%s   当前颜色：%s\n\n", cardText(s.TopCard), colorNameZh(s.ActiveColor)))
-	// Own hand (stable order).
-	b.WriteString(m.renderHand(o))
+	// Own hand (stable order). Framed with a bright border on your turn so the
+	// need to act is unmissable.
+	hand := m.renderHand(o)
+	if m.isMyTurn() {
+		hand = m.highlightHand(hand, o)
+	}
+	b.WriteString(hand)
 	return b.String()
 }
 
@@ -139,7 +144,7 @@ func (m Model) renderHand(o RenderOpts) string {
 		playable[id] = true
 	}
 	var b strings.Builder
-	if m.mode() == ModeTurn {
+	if m.isMyTurn() {
 		b.WriteString("你的手牌（按数字出牌，d 摸牌）：\n")
 	} else {
 		b.WriteString("你的手牌：\n")
@@ -172,6 +177,29 @@ func (m Model) renderHand(o RenderOpts) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
+}
+
+// isMyTurn reports whether it is this player's turn to act on their hand
+// (not merely that a game is in progress).
+func (m Model) isMyTurn() bool {
+	if m.Snap == nil || m.picking.Active {
+		return false
+	}
+	return m.Snap.CurrentPlayer == m.MyID
+}
+
+// highlightHand wraps the hand in a bright border so it is unmistakable that
+// it is this player's turn. The border always shows (even without color) using
+// ASCII corners; in color terminals the border glows bright green.
+func (m Model) highlightHand(text string, o RenderOpts) string {
+	if text == "" {
+		return text
+	}
+	st := lip.NewStyle().Border(lip.RoundedBorder())
+	if o.Color {
+		st = st.BorderForeground(lip.Color("46")).Foreground(lip.Color("46")).Bold(true)
+	}
+	return st.Padding(0, 1).Render(text)
 }
 
 // cardColorIcon renders a small color icon (a filled pip) for a hand card,

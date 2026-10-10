@@ -553,3 +553,28 @@ func TestView_RulesKeyShowsLoadedConfig(t *testing.T) {
 		t.Fatalf("rules view missing loaded config: %q", out)
 	}
 }
+
+// The hand is framed with a bright border on the player's own turn, drawing
+// the eye to the need to act (readme §9). border is the rounded-rule glyphs
+// used by scope/root lipgloss.
+func TestView_HandFramedOnYourTurn(t *testing.T) {
+	// Your turn: p0 is the current player in testSnap.
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	for _, g := range []string{"╭", "╰", "│"} {
+		if !strings.Contains(out, g) {
+			t.Fatalf("your-turn hand not framed (missing %q): %q", g, out)
+		}
+	}
+
+	// Not your turn: shift the current player so p0 is idle.
+	snap := testSnap()
+	snap.CurrentPlayer = "p1"
+	m = newModel("p0")
+	nm, _ = m.Update(SnapshotMsg{View: snap})
+	out = nm.(Model).render(RenderOpts{Color: false})
+	if strings.Contains(out, "╰") {
+		t.Fatalf("idle player's hand should not be framed: %q", out)
+	}
+}
