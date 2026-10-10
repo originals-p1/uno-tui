@@ -75,7 +75,9 @@ func (m Model) mode() Mode {
 	if m.edit && m.Config != nil {
 		return ModeConfigEdit
 	}
-	if m.rules && m.Config != nil {
+	// Rules view does not depend on a loaded config: renderRules defensively
+	// shows "尚无配置" so pressing "v" always gives visible feedback.
+	if m.rules {
 		return ModeRules
 	}
 	if s.Phase == string(game.PhaseLobby) {

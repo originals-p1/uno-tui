@@ -59,6 +59,8 @@ type Client struct {
 	muSnap       sync.RWMutex
 	snapshot     *game.GameView
 	revision     uint64
+	config       protocol.ConfigSnapshot
+	configSet    bool
 	sessionID    string
 	playerID     string
 	sessionToken string
@@ -171,6 +173,24 @@ func (c *Client) Snapshot() *game.GameView {
 	c.muSnap.RLock()
 	defer c.muSnap.RUnlock()
 	return c.snapshot
+}
+
+// ConfigSnapshot returns the latest known room configuration (ok=false if the
+// server has not sent one yet).
+func (c *Client) ConfigSnapshot() (protocol.ConfigSnapshot, bool) {
+	c.muSnap.RLock()
+	defer c.muSnap.RUnlock()
+	return c.config, c.configSet
+}
+
+func (c *Client) storeConfig(cs protocol.ConfigSnapshot) {
+	c.muSnap.Lock()
+	c.config = cs
+	c.configSet = true
+	c.muSnap.Unlock()
+	if c.OnConfig != nil {
+		c.OnConfig(cs)
+	}
 }
 
 // Revision returns the latest known room revision.
@@ -378,13 +398,13 @@ func (c *Client) handle(msg *protocol.Message, payload interface{}) {
 		}
 	case protocol.TypeConfigSnapshot:
 		snap := protocol.ConfigSnapshot{}
-		if jsonUnmarshal(msg.Payload, &snap) == nil && c.OnConfig != nil {
-			c.OnConfig(snap)
+		if jsonUnmarshal(msg.Payload, &snap) == nil {
+			c.storeConfig(snap)
 		}
 	case protocol.TypeRulesLocked:
 		rl := protocol.RulesLocked{}
-		if jsonUnmarshal(msg.Payload, &rl) == nil && c.OnConfig != nil {
-			c.OnConfig(protocol.ConfigSnapshot{Config: rl.Config, ConfigVersion: rl.ConfigVersion, Locked: true})
+		if jsonUnmarshal(msg.Payload, &rl) == nil {
+			c.storeConfig(protocol.ConfigSnapshot{Config: rl.Config, ConfigVersion: rl.ConfigVersion, Locked: true})
 		}
 	case protocol.TypeGameEvent:
 		if typ, _, err := protocol.ParseGameEvent(msg); err == nil && c.OnEvent != nil {

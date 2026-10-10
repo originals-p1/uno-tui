@@ -511,3 +511,45 @@ func TestKey_MultipleHotkeys(t *testing.T) {
 		}
 	}
 }
+
+// Regression: pressing "v" must always show the rules view, even before the
+// server's config snapshot has been loaded (m.Config == nil). Previously the
+// view silently no-op'd because ModeRules required a non-nil Config.
+func TestView_RulesKeyWorksWithoutConfig(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()}) // rules but no Config yet
+	m = nm.(Model)
+	if m.mode() != ModeTurn {
+		t.Fatalf("precondition: want ModeTurn, got %v", m.mode())
+	}
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model)
+	if m.mode() != ModeRules {
+		t.Fatalf("pressing v with nil Config: want ModeRules, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "当前规则") {
+		t.Fatalf("rules view missing header: %q", out)
+	}
+	// Closing with q must return to the game.
+	nm, _ = m.Update(KeyMsg{Key: "q"})
+	if nm.(Model).mode() != ModeTurn {
+		t.Fatalf("pressing q in rules should return to game, got %v", nm.(Model).mode())
+	}
+}
+
+// Once the config snapshot is delivered, the rules view shows actual rules
+// and the version footer.
+func TestView_RulesKeyShowsLoadedConfig(t *testing.T) {
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	cfg := game.DefaultConfig()
+	nm, _ = m.Update(ConfigMsg{Config: cfg, ConfigVersion: 3, Locked: false})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "当前规则") || !strings.Contains(out, "版本：v3") {
+		t.Fatalf("rules view missing loaded config: %q", out)
+	}
+}

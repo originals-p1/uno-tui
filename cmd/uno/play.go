@@ -29,10 +29,22 @@ func newAppModel(c *client.Client, name string) appModel {
 // handshake (Connect consumed the Welcome snapshot before OnSnapshot was wired
 // up), so the lobby is rendered immediately instead of starting blank.
 func (m appModel) Init() tea.Cmd {
+	var cmds []tea.Cmd
 	if s := m.c.Snapshot(); s != nil {
-		return func() tea.Msg { return tui.SnapshotMsg{View: s} }
+		cmds = append(cmds, func() tea.Msg { return tui.SnapshotMsg{View: s} })
 	}
-	return nil
+	// CONFIG_SNAPSHOT is delivered right after welcome, before runInteractive
+	// installs OnConfig, so it can be dropped. Re-emit the cached copy here so
+	// the rules view ("v") always has a config to render.
+	if cs, ok := m.c.ConfigSnapshot(); ok {
+		cmds = append(cmds, func() tea.Msg {
+			return tui.ConfigMsg{Config: cs.Config, ConfigVersion: cs.ConfigVersion, Locked: cs.Locked}
+		})
+	}
+	if len(cmds) == 0 {
+		return nil
+	}
+	return tea.Batch(cmds...)
 }
 
 func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
