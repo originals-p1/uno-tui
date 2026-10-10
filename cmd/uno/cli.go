@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bufio"
 	"context"
 	"crypto/rand"
 	"encoding/base64"
@@ -106,16 +107,133 @@ func joinAddress(hostPort string) (string, error) {
 	return net.JoinHostPort(h, strconv.Itoa(defaultPort)), nil
 }
 
-// runHost parses host mode, starts the server, and connects the local host
-// client, then stays alive until ctx is cancelled (graceful shutdown).
-func runHost(ctx context.Context, args []string, out, errOut io.Writer) error {
+// runWizard is the guided-startup entry point: it interactively collects the
+// player name, the mode (host/join) and the relevant settings on stdin, then
+// launches the game. It is the recommended way to start uno.
+func runWizard(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
+	fmt.Fprintf(out, "uno %s — Terminal UNO\n\n", version)
+	fmt.Fprintln(out, "（下面的选项直接回车使用默认值）")
+
+	name, err := prompt(in, out, "你的昵称（默认取自系统用户名）: ")
+	if err != nil {
+		return err
+	}
+	if name == "" {
+		name = defaultName()
+	}
+	o := &cliOpts{name: name, port: defaultPort}
+
+	mode, err := prompt(in, out, "开房还是加入？[H]ost / [J]oin（默认 Host）: ")
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mode)), "j") {
+		return wizardJoin(ctx, o, in, out, errOut)
+	}
+	return wizardHost(ctx, o, in, out, errOut)
+}
+
+// wizardHost collects hosting settings, then launches the server + host client.
+func wizardHost(ctx context.Context, o *cliOpts, in io.Reader, out, errOut io.Writer) error {
+	p, err := prompt(in, out, "监听端口（默认 7777）: ")
+	if err != nil {
+		return err
+	}
+	if p != "" {
+		n, aerr := strconv.Atoi(p)
+		if aerr != nil {
+			return fmt.Errorf("无效端口 %q", p)
+		}
+		o.port = n
+	}
+	useKey, err := prompt(in, out, "使用房间密钥文件吗？[y/N]（默认 N，无密钥）:")
+	if err != nil {
+		return err
+	}
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(useKey)), "y") {
+		o.roomKeyFile, err = prompt(in, out, "密钥文件路径（默认 room.key）: ")
+		if err != nil {
+			return err
+		}
+		if o.roomKeyFile == "" {
+			o.roomKeyFile = "room.key"
+		}
+	}
+	return launchHost(ctx, o, out, errOut)
+}
+
+// wizardJoin collects the target address and optional key, then joins a room.
+func wizardJoin(ctx context.Context, o *cliOpts, in io.Reader, out, errOut io.Writer) error {
+	addr, err := prompt(in, out, "房间地址 HOST[:PORT]（默认端口 7777）: ")
+	if err != nil {
+		return err
+	}
+	if addr == "" {
+		addr = "localhost"
+	}
+	o.addr = addr
+	o.roomKeyFile, err = prompt(in, out, "房间密钥文件（没有则直接回车）: ")
+	if err != nil {
+		return err
+	}
+	return launchJoin(ctx, o, out, errOut)
+}
+
+// prompt prints label and reads one trimmed line from in.
+func prompt(in io.Reader, out io.Writer, label string) (string, error) {
+	fmt.Fprint(out, label)
+	line, err := readLine(in)
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(line), nil
+}
+
+// readLine reads a single line (without the trailing newline) from in.
+func readLine(in io.Reader) (string, error) {
+	if in == nil {
+		return "", io.EOF
+	}
+	b, err := bufio.NewReader(in).ReadString('\n')
+	if err != nil && err != io.EOF {
+		return "", err
+	}
+	if err == io.EOF && strings.TrimSpace(b) == "" {
+		return "", nil
+	}
+	return strings.TrimRight(b, "\r\n"), nil
+}
+
+// defaultName returns a sensible default nickname from the environment.
+func defaultName() string {
+	if u := os.Getenv("USER"); u != "" {
+		return u
+	}
+	if u := os.Getenv("USERNAME"); u != "" {
+		return u
+	}
+	return "玩家"
+}
+
+// runHost is the advanced direct mode: it parses the (now optional) flags,
+// prompting for any missing name, and launches the host.
+func runHost(ctx context.Context, in io.Reader, args []string, out, errOut io.Writer) error {
 	o, err := parseFlags(args, false)
 	if err != nil {
 		return err
 	}
 	if o.name == "" {
-		return errors.New("--name is required when hosting")
+		o.name, err = prompt(in, out, "你的昵称: ")
+		if err != nil {
+			return err
+		}
 	}
+	return launchHost(ctx, o, out, errOut)
+}
+
+// launchHost starts the server and connects the local host client, then stays
+// alive until ctx is cancelled (graceful shutdown).
+func launchHost(ctx context.Context, o *cliOpts, out, errOut io.Writer) error {
 	key, created, err := hostRoomKey(o.roomKeyFile, out)
 	if err != nil {
 		return err
@@ -167,16 +285,25 @@ func runHost(ctx context.Context, args []string, out, errOut io.Writer) error {
 	return nil
 }
 
-// runJoin parses join mode, resolves the key (file or prompt), connects, and
-// stays alive until ctx is cancelled.
-func runJoin(ctx context.Context, args []string, out, errOut io.Writer) error {
+// runJoin is the advanced direct mode: it parses the (now optional) flags,
+// prompting for any missing name, and joins the target room.
+func runJoin(ctx context.Context, in io.Reader, args []string, out, errOut io.Writer) error {
 	o, err := parseFlags(args, true)
 	if err != nil {
 		return err
 	}
 	if o.name == "" {
-		return errors.New("--name is required when joining")
+		o.name, err = prompt(in, out, "你的昵称: ")
+		if err != nil {
+			return err
+		}
 	}
+	return launchJoin(ctx, o, out, errOut)
+}
+
+// launchJoin resolves the target and key, connects, and stays alive until ctx
+// is cancelled.
+func launchJoin(ctx context.Context, o *cliOpts, out, errOut io.Writer) error {
 	target, err := joinAddress(o.addr)
 	if err != nil {
 		return err

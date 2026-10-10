@@ -187,7 +187,7 @@ func TestJoinAddress_DefaultPort(t *testing.T) {
 
 func TestRunHelp(t *testing.T) {
 	var out, errOut bytes.Buffer
-	if err := run(context.Background(), []string{"--help"}, &out, &errOut); err != nil {
+	if err := run(context.Background(), strings.NewReader(""), []string{"--help"}, &out, &errOut); err != nil {
 		t.Fatalf("help: %v", err)
 	}
 	if !strings.Contains(out.String(), "uno host") {
@@ -197,17 +197,96 @@ func TestRunHelp(t *testing.T) {
 
 func TestRunUnknownCommand(t *testing.T) {
 	var out, errOut bytes.Buffer
-	err := run(context.Background(), []string{"frobnicate"}, &out, &errOut)
+	err := run(context.Background(), strings.NewReader(""), []string{"frobnicate"}, &out, &errOut)
 	if err == nil {
 		t.Fatalf("expected error for unknown command")
 	}
 }
 
-func TestRunHost_RequiresName(t *testing.T) {
-	var out, errOut bytes.Buffer
-	err := runHost(context.Background(), []string{"--port", "0"}, &out, &errOut)
-	if err == nil {
-		t.Fatalf("expected error when --name missing")
+// TestRunHost_PromptsName verifies that a missing --name is prompted for
+// interactively (guided behavior) rather than rejected outright.
+func TestRunHost_PromptsName(t *testing.T) {
+	dir := t.TempDir()
+	keyFile := filepath.Join(dir, "k")
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &lockedBuf{}
+	done := make(chan error, 1)
+	go func() {
+		// Name is NOT passed as a flag; it must be read from stdin.
+		done <- runHost(ctx, strings.NewReader("Host\n"), []string{"--port", "0", "--room-key-file", keyFile}, out, out)
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(out.String(), "connected as host player") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "connected as host player") {
+		t.Fatalf("host never connected using prompted name; output=%q", out.String())
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("runHost returned error on graceful shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("runHost did not shut down, output=%q", out.String())
+	}
+}
+
+func TestPrompt_ReadsAndTrims(t *testing.T) {
+	var out bytes.Buffer
+	got, err := prompt(strings.NewReader("  Alice  \n"), &out, "昵称: ")
+	if err != nil {
+		t.Fatalf("prompt: %v", err)
+	}
+	if got != "Alice" {
+		t.Fatalf("prompt = %q, want Alice", got)
+	}
+	if !strings.Contains(out.String(), "昵称:") {
+		t.Fatalf("prompt label missing: %q", out.String())
+	}
+}
+
+func TestReadLine_Basic(t *testing.T) {
+	line, err := readLine(strings.NewReader("hello\n"))
+	if err != nil || line != "hello" {
+		t.Fatalf("readLine = %q, %v", line, err)
+	}
+}
+
+// TestRunWizard_HostPath boots through the guided wizard (name + host + port 0
+// + no key) and confirms it connects, then shuts down cleanly.
+func TestRunWizard_HostPath(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &lockedBuf{}
+	done := make(chan error, 1)
+	answers := "Alice\nH\n0\nn\n"
+	go func() {
+		done <- run(ctx, strings.NewReader(answers), nil, out, &lockedBuf{})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(out.String(), "connected as host player") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "connected as host player") {
+		t.Fatalf("wizard host never connected; output=%q", out.String())
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("wizard returned error on graceful shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("wizard did not shut down, output=%q", out.String())
 	}
 }
 
@@ -220,7 +299,7 @@ func TestRunHost_GracefulShutdown(t *testing.T) {
 	out := &lockedBuf{}
 	done := make(chan error, 1)
 	go func() {
-		done <- runHost(ctx, []string{"--port", "0", "--name", "Host", "--room-key-file", keyFile}, out, out)
+		done <- runHost(ctx, strings.NewReader(""), []string{"--port", "0", "--name", "Host", "--room-key-file", keyFile}, out, out)
 	}()
 	// Wait until the host reports it is connected.
 	deadline := time.Now().Add(5 * time.Second)
