@@ -258,6 +258,28 @@ func TestView_ChallengeResultBanner(t *testing.T) {
 	}
 }
 
+func TestView_EachPlayerShowsHandCount(t *testing.T) {
+	// During a game each player's row shows their live hand-card count.
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "7 张") || !strings.Contains(out, "6 张") {
+		t.Fatalf("game view should show each player's hand count: %q", out)
+	}
+
+	// The lobby must NOT show bogus 0-card counts.
+	lo := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseLobby)
+		v.CurrentPlayer = ""
+	})
+	m2 := newModel("p0")
+	nm2, _ := m2.Update(SnapshotMsg{View: lo})
+	lout := nm2.(Model).render(RenderOpts{Color: false})
+	if strings.Contains(lout, "0 张") {
+		t.Fatalf("lobby should not show hand counts: %q", lout)
+	}
+}
+
 func TestView_Rules(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 2, Locked: false})

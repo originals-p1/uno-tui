@@ -413,7 +413,7 @@ func playerLine(m Model, p game.PlayerView, o RenderOpts) string {
 	if p.UNO {
 		parts = append(parts, "UNO!")
 	}
-	if len(p.Name) == 0 || p.Name == p.ID {
+	if m.inGame() {
 		parts = append(parts, fmt.Sprintf("%d 张", p.CardCount))
 	}
 	status := "已准备"
@@ -446,6 +446,12 @@ func (m Model) SnapCurrentPlayer() string {
 		return ""
 	}
 	return m.Snap.CurrentPlayer
+}
+
+// inGame reports whether a game is in progress (vs. the lobby), in which case
+// each player's live hand-card count is meaningful.
+func (m Model) inGame() bool {
+	return m.Snap != nil && m.Snap.CurrentPlayer != "" && m.Snap.Phase != string(game.PhaseLobby)
 }
 
 func (m Model) displayName(id string) string {
