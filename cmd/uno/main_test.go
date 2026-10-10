@@ -258,3 +258,22 @@ func (b *lockedBuf) String() string {
 	defer b.mu.Unlock()
 	return b.buf.String()
 }
+
+func TestParseFlags_NoRoomKey(t *testing.T) {
+	// host without a key
+	o, err := parseFlags([]string{"--name", "Alice", "--no-room-key"}, false)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if !o.noRoomKey {
+		t.Fatalf("expected noRoomKey=true")
+	}
+	// join address + flags after address
+	o2, err := parseFlags([]string{"1.2.3.4", "--name", "Bob", "--no-room-key"}, true)
+	if err != nil {
+		t.Fatalf("parseFlags: %v", err)
+	}
+	if !o2.noRoomKey || o2.addr != "1.2.3.4" {
+		t.Fatalf("unexpected parse: %+v", o2)
+	}
+}

@@ -83,5 +83,6 @@ Flags (both modes):
   --port int             Listen port for host (default %d)
   --room-key-file path   Room key file; host creates it if missing,
                          join reads it (otherwise prompted, no echo)
+  --no-room-key          Disable the room key (casual LAN play)
 `, version, defaultPort, defaultPort)
 }
