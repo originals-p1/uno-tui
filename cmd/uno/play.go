@@ -120,6 +120,8 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 			break
 		}
 		_, _ = c.UpdateConfig(*a.Config, m.tui.ConfigVersion, rev)
+		// Persist the host's applied rules so they survive a restart.
+		_ = saveRulesConfig(*a.Config)
 	case tui.ActLeave:
 		_, _ = c.Leave(rev)
 	case tui.ActRematch:

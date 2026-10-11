@@ -107,9 +107,9 @@ type Request struct {
 	Expected  *uint64
 	Action    game.Action
 
-	Hello      *HelloReq
-	Ready      *Ready
-	Disconnect *Disconnect
+	Hello        *HelloReq
+	Ready        *Ready
+	Disconnect   *Disconnect
 	ConfigUpdate *ConfigUpdateReq
 
 	resp chan *Outcome
@@ -256,6 +256,18 @@ func newRoom(cfg Config, clock Clock) *Room {
 // and whether the rules are locked (rule.md §0.5).
 func (r *Room) ConfigState() (game.Config, uint64, bool) {
 	return r.config, r.configVersion, r.configLocked
+}
+
+// setInitialRules seeds the lobby's rules config from a persisted rules file so
+// the host's last-used rules survive a restart (readme §三 持久化房规). It must
+// be called before the room starts a game or locks the rules; a validated config
+// replaces the default and bumps the version so clients pick it up.
+func (r *Room) setInitialRules(c game.Config) {
+	if err := c.Validate(); err != nil {
+		return // keep the default on a bad persisted file
+	}
+	r.config = c
+	r.configVersion++
 }
 
 // Run starts the owner goroutine, driving both the inbox and deadline timers.

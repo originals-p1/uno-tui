@@ -73,6 +73,10 @@ func NewServer(cfg Config, clock Clock, log *slog.Logger) *Server {
 // Room exposes the event-loop state for tests/integration.
 func (s *Server) Room() *Room { return s.room }
 
+// SetRoomRules seeds the lobby's rules from a persisted rules file before any
+// game starts, so the host's last-used rules survive a restart.
+func (s *Server) SetRoomRules(c game.Config) { s.room.setInitialRules(c) }
+
 // Clock returns the server's clock.
 func (s *Server) Clock() Clock { return s.clock }
 

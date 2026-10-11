@@ -332,6 +332,11 @@ func launchHost(ctx context.Context, o *cliOpts, out, errOut io.Writer) error {
 	cfg.HostBootstrapToken = hbt
 	s := server.NewServer(cfg, server.NewRealClock(), nil)
 	defer s.Close()
+	// Re-seed the lobby rules from the persisted rules file so the last-used
+	// house rules survive a restart (readme §三 持久化房规).
+	if _, err := os.Stat(rulesConfigFilePath()); err == nil {
+		s.SetRoomRules(loadRulesConfig())
+	}
 	ln, err := s.Listen(fmt.Sprintf("0.0.0.0:%d", o.port))
 	if err != nil {
 		return fmt.Errorf("listen: %w", err)

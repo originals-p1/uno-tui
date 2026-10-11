@@ -118,3 +118,49 @@ func TestConfig_LockedDuringGame(t *testing.T) {
 		t.Fatalf("update while locked: got %q, want %q", out.ErrCode, CodeNotWaitingPhase)
 	}
 }
+
+// TestConfig_SetInitialRulesSeedsLobby verifies a persisted rules file can seed
+// the lobby so the host's last-used rules survive a restart.
+func TestConfig_SetInitialRulesSeedsLobby(t *testing.T) {
+	s := NewServer(DefaultConfig(), NewRealClock(), nil)
+	defer s.Close()
+
+	// Seed a non-default config with stacking + score mode.
+	cfg := game.DefaultConfig()
+	cfg.HouseRules.StackDrawTwo = true
+	cfg.HouseRules.MixedStacking = true
+	cfg.Cards.ChallengeDrawFour = true
+	cfg.Game.WinMode = game.WinScore
+	cfg.Game.TargetScore = 500
+	s.SetRoomRules(cfg)
+
+	got, ver, locked := s.Room().ConfigState()
+	if !got.HouseRules.StackDrawTwo || !got.HouseRules.MixedStacking || !got.Cards.ChallengeDrawFour {
+		t.Fatalf("seeded stacking rules not applied: %+v", got.HouseRules)
+	}
+	if got.Game.WinMode != game.WinScore || got.Game.TargetScore != 500 {
+		t.Fatalf("seeded score mode not applied: %+v", got.Game)
+	}
+	if ver == 0 {
+		t.Fatal("seeding must bump the config version")
+	}
+	if locked {
+		t.Fatal("seeded pre-game config must not be locked")
+	}
+}
+
+// TestConfig_SetInitialRulesIgnoresInvalid verifies an invalid persisted config
+// is rejected and the room keeps its defaults.
+func TestConfig_SetInitialRulesIgnoresInvalid(t *testing.T) {
+	s := NewServer(DefaultConfig(), NewRealClock(), nil)
+	defer s.Close()
+
+	bad := game.DefaultConfig()
+	bad.Room.MaxPlayers = -3 // invalid
+	s.SetRoomRules(bad)
+
+	got, _, _ := s.Room().ConfigState()
+	if got.Room.MaxPlayers == -3 {
+		t.Fatal("invalid seeded config must be ignored")
+	}
+}
