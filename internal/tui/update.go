@@ -207,6 +207,11 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 	case ModeDrawnDecision:
 		switch k {
 		case "p", "enter":
+			// A drawn wild / +4 needs a chosen color before it can be played.
+			if m.Snap != nil && m.Snap.DrawDecision != nil && game.IsWild(m.Snap.DrawDecision.Card.Rank) {
+				m.picking = CardPick{Active: true, CardID: m.Snap.DrawDecision.Card.ID, IsDrawn: true}
+				return m, nil
+			}
 			return m, actCmd(ActPlayDrawn)
 		case "g", " ":
 			return m, actCmd(ActPassDrawn)
@@ -218,6 +223,25 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		case "a":
 			return m, actCmd(ActAcceptFour)
 		}
+	case ModeStack:
+		// In a stacking phase you may play a +2/+4 to keep stacking, or accept
+		// the accumulated penalty with "a".
+		if k == "a" {
+			return m, actCmd(ActAcceptStack)
+		}
+		switch k {
+		case "up", "k":
+			nm := m
+			nm.moveHandSel(-1)
+			return nm, nil
+		case "down", "j":
+			nm := m
+			nm.moveHandSel(1)
+			return nm, nil
+		case "enter":
+			return m.playHandAt(m.handSel)
+		}
+		return m.onTurnNumber(k)
 	case ModeRules:
 		if k == "e" && m.IsHost && !m.RulesLocked {
 			m.edit = true
@@ -328,7 +352,12 @@ func (m Model) onColorKey(k string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	id := m.picking.CardID
+	isDrawn := m.picking.IsDrawn
 	m.picking = CardPick{}
+	// A just-drawn wild card is played with play_drawn, not a hand play.
+	if isDrawn {
+		return m, action(ActPlayDrawn, id, col)
+	}
 	return m, actCmdCol(ActPlayCard, id, col)
 }
 

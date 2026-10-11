@@ -16,6 +16,7 @@ const (
 	ModePaused
 	ModeFinished
 	ModeChallenge
+	ModeStack
 	ModeRules
 	ModeConfigEdit
 	ModeHistory
@@ -119,6 +120,9 @@ func (m Model) mode() Mode {
 	}
 	if s.Challenge != nil && s.CurrentPlayer == m.MyID {
 		return ModeChallenge
+	}
+	if s.Stack != nil && s.CurrentPlayer == m.MyID {
+		return ModeStack
 	}
 	if s.DrawDecision != nil && s.CurrentPlayer == m.MyID {
 		return ModeDrawnDecision

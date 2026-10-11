@@ -10,6 +10,7 @@ const (
 	ActionPassDrawn     ActionType = "pass_drawn"     // keep the drew card and end turn
 	ActionAcceptFour    ActionType = "accept_four"    // +4 challenge: accept the +4 penalty (R13)
 	ActionChallengeFour ActionType = "challenge_four" // +4 challenge: challenge the +4 player (R13)
+	ActionAcceptStack   ActionType = "accept_stack"   // stacking: accept the accumulated draw penalty (R19-R21)
 )
 
 // PlayCardAction carries a play_card request. ChosenColor is required for Wild
@@ -42,6 +43,7 @@ type Result struct {
 // non-turn / finished phase. In the drawn_decision phase it returns only a
 // pseudo card ID for playing the just-drawn card.
 type LegalMoves struct {
-	PlayableIDs []string // hand card IDs the player may currently play
-	CanDraw     bool     // true during a normal own turn
+	PlayableIDs    []string // hand card IDs the player may currently play
+	CanDraw        bool     // true during a normal own turn
+	CanAcceptStack bool     // true during a stacking phase (accept accumulated penalty, R19-R21)
 }

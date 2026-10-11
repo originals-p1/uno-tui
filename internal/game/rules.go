@@ -148,6 +148,9 @@ func (g *Game) LegalMoves(playerID string) LegalMoves {
 			// Only the just-drawn card may be played in this phase.
 			lm.PlayableIDs = []string{g.DrawnCardID}
 		}
+	case PhaseStack:
+		lm.PlayableIDs = g.stackPlayableIDs(g.Players[pi].Hand)
+		lm.CanAcceptStack = true
 	}
 	return lm
 }
@@ -180,10 +183,14 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 	var err error
 	switch a.Type {
 	case ActionPlayCard:
-		if g.Phase != PhaseTurn {
+		switch g.Phase {
+		case PhaseTurn:
+			res, err = g.applyPlayHandCard(pi, a)
+		case PhaseStack:
+			res, err = g.applyPlayStack(pi, a)
+		default:
 			return nil, gErr(ErrCodeInvalidPhase, "cannot play a hand card in phase %s", g.Phase)
 		}
-		res, err = g.applyPlayHandCard(pi, a)
 	case ActionDrawCard:
 		if g.Phase != PhaseTurn {
 			return nil, gErr(ErrCodeInvalidPhase, "cannot draw in phase %s", g.Phase)
@@ -203,6 +210,11 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 		res, err = g.applyAcceptFour(pi)
 	case ActionChallengeFour:
 		res, err = g.applyChallengeFour(pi)
+	case ActionAcceptStack:
+		if g.Phase != PhaseStack {
+			return nil, gErr(ErrCodeInvalidPhase, "no stack penalty to accept in phase %s", g.Phase)
+		}
+		res, err = g.applyAcceptStack(pi)
 	default:
 		return nil, gErr(ErrCodeInvalidArgument, "unknown action type %q", a.Type)
 	}
@@ -544,6 +556,12 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 			res.Events = append(res.Events, g.event(EventDirectionReversed, playerID, nil, ""))
 		}
 	case RankDrawTwo:
+		// +2 stacking (R19): instead of immediately hitting the victim, hand off
+		// an accumulating penalty the next player may re-stack or accept.
+		if g.Config.stackingDrawTwo() {
+			g.beginStack(res, RankDrawTwo)
+			return
+		}
 		target := wrap(g.CurrentIndex+g.Direction, n)
 		drawn := g.drawCards(2)
 		g.Players[target].Hand = append(g.Players[target].Hand, drawn...)
@@ -552,6 +570,12 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		g.CurrentIndex = wrap(g.CurrentIndex+2*g.Direction, n)
 		res.Events = append(res.Events, g.event(EventSkipped, playerID, nil, "", g.Players[target].ID))
 	case RankWildDrawFour:
+		// +4 stacking (R20) or mixed stacking (R21): hand off an accumulating
+		// penalty instead of the single-card challenge (challenge is off here).
+		if g.Config.stackingDrawFour() {
+			g.beginStack(res, RankWildDrawFour)
+			return
+		}
 		if g.Config.Cards.ChallengeDrawFour {
 			// The +4 effect is suspended until the target accepts or challenges.
 			target := wrap(g.CurrentIndex+g.Direction, n)
@@ -575,6 +599,99 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 	}
 	res.NextPlayerID = g.currentPlayer().ID
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+}
+
+// beginStack enters PhaseStack, handing an accumulated draw penalty to the next
+// player in the current direction (rule.md R19-R21). credits depends on rank.
+func (g *Game) beginStack(res *Result, rank Rank) {
+	n := len(g.Players)
+	credits := 2
+	if rank == RankWildDrawFour {
+		credits = 4
+	}
+	target := wrap(g.CurrentIndex+g.Direction, n)
+	g.CurrentIndex = target
+	g.Phase = PhaseStack
+	g.stackRank = rank
+	g.stackCredits = credits
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.stackPlayableIDs(g.currentPlayer().Hand)
+}
+
+// canStack reports whether c may be played onto a live stacking heap: a +2 can
+// follow whenever +2 stacking is enabled, a +4 whenever +4 stacking is enabled
+// (mixed stacking lets the rank switch freely, rule.md R21).
+func (g *Game) canStack(c Card) bool {
+	if c.Rank == RankDrawTwo && g.Config.stackingDrawTwo() {
+		return true
+	}
+	if c.Rank == RankWildDrawFour && g.Config.stackingDrawFour() {
+		return true
+	}
+	return false
+}
+
+// stackPlayableIDs returns the hand card IDs currently playable to re-stack the
+// accumulated penalty in PhaseStack.
+func (g *Game) stackPlayableIDs(hand []Card) []string {
+	var ids []string
+	for _, c := range hand {
+		if g.canStack(c) {
+			ids = append(ids, c.ID)
+		}
+	}
+	return ids
+}
+
+// applyPlayStack plays a stacking card (+2 or +4) to accumulate the penalty and
+// passes the heap one seat further (rule.md R19-R21).
+func (g *Game) applyPlayStack(pi int, a Action) (*Result, error) {
+	cidx := IndexOf(g.Players[pi].Hand, a.CardID)
+	if cidx < 0 {
+		return nil, gErr(ErrCodeCardNotOwned, "player does not own card %q", a.CardID)
+	}
+	card := g.Players[pi].Hand[cidx]
+	if !g.canStack(card) {
+		return nil, gErr(ErrCodeCardNotPlayable, "card %s cannot be stacked onto the penalty", card)
+	}
+	chosen, err := g.resolveChosenColor(card, a)
+	if err != nil {
+		return nil, err
+	}
+	res := g.discardFromHand(pi, card, chosen)
+	if res.Ended {
+		return res, nil
+	}
+	n := len(g.Players)
+	credits := 2
+	if card.Rank == RankWildDrawFour {
+		credits = 4
+	}
+	g.stackCredits += credits
+	g.stackRank = card.Rank
+	g.CurrentIndex = wrap(pi+g.Direction, n)
+	g.Phase = PhaseStack
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.stackPlayableIDs(g.currentPlayer().Hand)
+	return res, nil
+}
+
+// applyAcceptStack resolves the accumulated penalty: the current player draws
+// stackCredits cards and is skipped (rule.md R19-R21).
+func (g *Game) applyAcceptStack(pi int) (*Result, error) {
+	n := len(g.Players)
+	res := &Result{}
+	drawn := g.drawCards(g.stackCredits)
+	g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+	g.updateUNO(pi)
+	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
+	g.CurrentIndex = wrap(pi+g.Direction, n)
+	g.Phase = PhaseTurn
+	g.stackCredits = 0
+	g.stackRank = ""
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+	return res, nil
 }
 
 // updateUNO maintains the once-per-transition UNO flag. It returns true only

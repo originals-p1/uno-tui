@@ -897,8 +897,16 @@ func TestView_ScoreMode_RoundLineAndBanner(t *testing.T) {
 	if !strings.Contains(out, "先到 500 分获胜") {
 		t.Fatalf("missing target in score line: %q", out)
 	}
-	if !strings.Contains(out, "第 1 回合结束：Alice 获得 4 分") {
+	if !strings.Contains(out, "第 1 回合结束：Alice +4 分") {
 		t.Fatalf("missing round-result banner: %q", out)
+	}
+	// A RoundResult carrying deltas also shows each loser's deduction.
+	v.RoundResult.Deltas = map[string]int{"p0": 4, "p1": -6}
+	nm, _ = m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+	out2 := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out2, "Bob -6") {
+		t.Fatalf("missing loser deduction in banner: %q", out2)
 	}
 }
 
@@ -1058,5 +1066,72 @@ func TestView_HandSelectionMarker_AllHandSizes(t *testing.T) {
 	_, action := runKey(t, m2, "enter")
 	if want := "play_card:c1:"; action != want {
 		t.Fatalf("enter action = %q, want %q", action, want)
+	}
+}
+
+// TestKey_DrawnWildOpensColorPicker verifies that pressing "p" on a just-drawn
+// wild/+4 opens the color picker instead of sending a color-less play_drawn
+// (which the server would reject).
+func TestKey_DrawnWildOpensColorPicker(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseDrawnDecision)
+		v.DrawDecision = &game.DrawDecisionView{Card: game.CardView{ID: "d0", Color: game.ColorWild, Rank: game.RankWildDrawFour}}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeDrawnDecision {
+		t.Fatalf("want drawn decision mode, got %v", m.mode())
+	}
+	nm, action := runKey(t, m, "p")
+	m = nm.(Model)
+	if action != "" {
+		t.Fatalf("pressing p on a drawn wild must not send a direct play, got %q", action)
+	}
+	if m.mode() != ModeColor {
+		t.Fatalf("pressing p on a drawn wild should open the color picker, got %v", m.mode())
+	}
+	// Choosing a color now emits play_drawn with that color.
+	_, a2 := runKey(t, m, "r")
+	if !strings.HasPrefix(a2, "play_drawn:") || !strings.HasSuffix(a2, ":red") {
+		t.Fatalf("choosing color should emit play_drawn with red, got %q", a2)
+	}
+}
+
+// TestKey_Stack verifies the stacking phase mode and the accept key.
+func TestKey_Stack(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 4, YourDecision: true}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeStack {
+		t.Fatalf("expected stack mode, got %v", m.mode())
+	}
+	_, a := runKey(t, m, "a")
+	if !strings.HasPrefix(a, "accept_stack") {
+		t.Fatalf("a should emit accept_stack, got %q", a)
+	}
+}
+
+// TestView_NonDecisionStackBanner verifies a spectator/sibling player sees the
+// "被叠加惩罚" banner in the normal game render while a stack is in flight.
+func TestView_NonDecisionStackBanner(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 6, YourDecision: false}
+		v.CurrentPlayer = "p1" // Bob is charged; this model is Alice (p0)
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() == ModeStack {
+		t.Fatalf("non-decision model must not be in stack-decision mode, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "被叠加惩罚") || !strings.Contains(out, "累计 6 张") {
+		t.Fatalf("non-decision stack banner missing: %q", out)
 	}
 }

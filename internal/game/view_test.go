@@ -173,3 +173,48 @@ func TestBuildView_Finished(t *testing.T) {
 		t.Fatalf("finished view = phase %s winner %s", v.Phase, v.WinnerPlayerID)
 	}
 }
+
+func TestBuildView_StackPopulated(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("s0", ColorGreen, RankSeven)},
+			{tcard("p1", ColorGreen, RankNine)},
+			{tcard("p2", ColorRed, RankSix)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}); err != nil {
+		t.Fatalf("play: %v", err)
+	}
+	// Decision player p1 sees a populated Stack view.
+	vDec := g.BuildViewFor("p1")
+	if vDec.Stack == nil {
+		t.Fatal("decision player Stack view is nil")
+	}
+	if vDec.Stack.Credits != 2 || !vDec.Stack.YourDecision {
+		t.Fatalf("decision stack = %+v, want credits=2 your_decision=true", vDec.Stack)
+	}
+	// Non-decision player also gets the credits but not the decision flag.
+	vOther := g.BuildViewFor("p2")
+	if vOther.Stack == nil || vOther.Stack.Credits != 2 || vOther.Stack.YourDecision {
+		t.Fatalf("non-decision stack = %+v, want credits=2 your_decision=false", vOther.Stack)
+	}
+	// The decision player's legal moves expose the stackable cards.
+	lm := g.LegalMoves("p1")
+	if !lm.CanAcceptStack {
+		t.Fatal("decision player should be able to accept the stack")
+	}
+}
+
+func TestBuildView_NoStackOutsideStackPhase(t *testing.T) {
+	g := mkGame(
+		[][]Card{{tcard("a1", ColorRed, RankOne)}},
+		nil, tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	v := g.BuildViewFor("p0")
+	if v.Stack != nil {
+		t.Fatalf("Stack view should be nil outside a stack phase, got %+v", v.Stack)
+	}
+}

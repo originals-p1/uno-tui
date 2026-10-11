@@ -163,6 +163,15 @@ func (g *Game) RoundPoints(winnerID string) int {
 	return total
 }
 
+// HandPoints returns the total point value of a hand (rule.md R28 card values).
+func HandPoints(hand []Card) int {
+	total := 0
+	for _, c := range hand {
+		total += CardPoints(c)
+	}
+	return total
+}
+
 // IndexOf returns the index of the first card in hand with the given ID, or
 // -1 if not found.
 func IndexOf(hand []Card, id string) int {

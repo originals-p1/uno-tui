@@ -71,6 +71,8 @@ func (m Model) renderBody(o RenderOpts) string {
 		return banner + m.renderDrawDecision(o)
 	case ModeChallenge:
 		return m.renderChallenge(o)
+	case ModeStack:
+		return banner + m.renderStack(o)
 	case ModeRules:
 		return m.renderRules(o)
 	case ModeHistory:
@@ -118,6 +120,10 @@ func (m Model) renderGame(o RenderOpts) string {
 		b.WriteString("  " + playerLine(m, p, o) + "\n")
 	}
 	// Board info.
+	if s.Stack != nil && !s.Stack.YourDecision {
+		b.WriteString(fmt.Sprintf("\n⚠ %s 正被叠加惩罚（累计 %d 张，等待其出牌或接受）\n",
+			m.displayName(s.CurrentPlayer), s.Stack.Credits))
+	}
 	b.WriteString(fmt.Sprintf("\n轮到：%s （出牌方向 %s）\n", m.displayName(s.CurrentPlayer), dirArrow(s.Direction, o)))
 	b.WriteString(m.renderTurnOrder(o))
 	b.WriteString(fmt.Sprintf("桌面：%s   当前颜色：%s\n\n", cardText(s.TopCard), colorNameZh(s.ActiveColor)))
@@ -257,6 +263,21 @@ func (m Model) renderChallenge(o RenderOpts) string {
 	return b.String()
 }
 
+// renderStack renders the stacking-penalty decision screen (rule.md R19-R21):
+// the live board plus the option to re-stack or accept the accumulated penalty.
+func (m Model) renderStack(o RenderOpts) string {
+	var b strings.Builder
+	credits := 0
+	if m.Snap != nil && m.Snap.Stack != nil {
+		credits = m.Snap.Stack.Credits
+	}
+	b.WriteString(fmt.Sprintf("你被罚摸 %d 张（叠加中）。\n", credits))
+	b.WriteString("  (1-9/0 选中可叠加牌打出) —— 传递 +2/+4 继续累加\n")
+	b.WriteString("  (a) 接受惩罚 —— 摸 " + fmt.Sprintf("%d", credits) + " 张并跳过\n\n")
+	b.WriteString(m.renderGame(o))
+	return b.String()
+}
+
 // challengeResultBanner renders the transient outcome of a +4 challenge.
 func (m Model) challengeResultBanner(o RenderOpts) string {
 	if m.Snap == nil || m.Snap.ChallengeRes == nil {
@@ -358,7 +379,14 @@ func (m Model) scoreBanner(o RenderOpts) string {
 	}
 	rr := s.RoundResult
 	name := m.displayName(rr.WinnerPlayerID)
-	line := fmt.Sprintf("第 %d 回合结束：%s 获得 %d 分。", rr.RoundNumber, name, rr.Points)
+	line := fmt.Sprintf("第 %d 回合结束：%s +%d 分。", rr.RoundNumber, name, rr.Points)
+	// Show each loser's deduction (based on cards remaining in hand).
+	for pid, d := range rr.Deltas {
+		if d >= 0 {
+			continue
+		}
+		line += fmt.Sprintf(" %s %d", m.displayName(pid), d)
+	}
 	if o.Color {
 		return successStyle(line) + "\n"
 	}
@@ -489,6 +517,9 @@ var cfgItems = []cfgEditItem{
 	toggleItem("+4", "draw_four"),
 	toggleItem("+4 挑战", "challenge"),
 	toggleItem("动作牌可收尾", "finish"),
+	toggleItem("+2 叠加", "stack_two"),
+	toggleItem("+4 叠加", "stack_four"),
+	toggleItem("混合叠加", "mix_stack"),
 	toggleItem("自动 UNO", "auto_uno"),
 	{
 		label: "胜负模式",
@@ -593,6 +624,12 @@ func toggleGet(c *game.Config, alias string) bool {
 		return c.Cards.ChallengeDrawFour
 	case "finish":
 		return c.Cards.AllowActionFinish
+	case "stack_two":
+		return c.HouseRules.StackDrawTwo
+	case "stack_four":
+		return c.HouseRules.StackDrawFour
+	case "mix_stack":
+		return c.HouseRules.MixedStacking
 	case "auto_uno":
 		return c.HouseRules.AutoUNO
 	}
@@ -612,9 +649,33 @@ func toggleSet(c *game.Config, alias string, v bool) {
 	case "draw_four":
 		c.Cards.EnableDrawFour = v
 	case "challenge":
+		// Enabling the +4 challenge disables +4 stacking / mixed (rule.md §12:
+		// the host editor auto-resolves conflicts).
 		c.Cards.ChallengeDrawFour = v
+		if v {
+			c.HouseRules.StackDrawFour = false
+			c.HouseRules.MixedStacking = false
+		}
 	case "finish":
 		c.Cards.AllowActionFinish = v
+	case "stack_two":
+		c.HouseRules.StackDrawTwo = v
+	case "stack_four":
+		c.HouseRules.StackDrawFour = v
+		if v {
+			c.Cards.ChallengeDrawFour = false
+		}
+	case "mix_stack":
+		c.HouseRules.MixedStacking = v
+		if v {
+			// Mixed stacking requires +4 stacking on and no +4 challenge (R21).
+			c.HouseRules.StackDrawTwo = true
+			c.HouseRules.StackDrawFour = true
+			c.Cards.ChallengeDrawFour = false
+		}
+		if !v && !c.HouseRules.StackDrawFour {
+			c.HouseRules.StackDrawTwo = false
+		}
 	case "auto_uno":
 		c.HouseRules.AutoUNO = v
 	}
@@ -795,6 +856,8 @@ func (m Model) renderFooter(o RenderOpts) string {
 		return "按键：p=打出该牌 g=保留 h=帮助 q=退出"
 	case ModeChallenge:
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
+	case ModeStack:
+		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 h=帮助 q=退出"
 	case ModeRules:
 		return "按键：v=返回 e=编辑(房主) h=帮助 q=退出"
 	case ModeConfigEdit:
@@ -837,6 +900,10 @@ func (m Model) renderHelp(o RenderOpts) string {
 被罚 +4（挑战）：
   c       挑战对方
   a       接受并摸 4 张
+
+被抓叠加惩罚（+2/+4 叠加房规）：
+  1-9/0   打出 +2/+4 继续叠加（传递惩罚）
+  a       接受并摸累计张数、跳过
 
 规则：
   v       查看当前规则（房主按 e 进入编辑）

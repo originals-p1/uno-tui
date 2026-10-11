@@ -14,6 +14,7 @@ const (
 	PhaseTurn          Phase = "turn"
 	PhaseDrawnDecision Phase = "drawn_decision"
 	PhaseChallenge     Phase = "challenge"
+	PhaseStack         Phase = "stack"
 	PhasePaused        Phase = "paused"
 	PhaseFinished      Phase = "finished"
 )
@@ -93,6 +94,13 @@ type Game struct {
 	// pendingWinPlayerID defers a +4 resolver's win until the challenge settles
 	// (rule.md R27 / §16 last-card +4 edge).
 	pendingWinPlayerID string
+
+	// Stacking state (rule.md R19/R20/R21). When a draw-penalty is in flight
+	// the game enters PhaseStack: the current player may either play a stacking
+	// card (+2/+4) to accumulate the penalty, or accept it. stackCredits is the
+	// running total and stackRank the rank currently being stacked.
+	stackCredits int
+	stackRank    Rank
 }
 
 // NewGame builds a fresh game from the standard 108-card deck, dealing opening

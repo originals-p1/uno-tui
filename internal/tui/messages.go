@@ -51,6 +51,7 @@ const (
 	ActRematch
 	ActAcceptFour
 	ActChallengeFour
+	ActAcceptStack
 	ActApplyConfig
 )
 
@@ -88,6 +89,8 @@ func (k ActionKind) String() string {
 		return "accept_four"
 	case ActChallengeFour:
 		return "challenge_four"
+	case ActAcceptStack:
+		return "accept_stack"
 	case ActApplyConfig:
 		return "apply_config"
 	default:

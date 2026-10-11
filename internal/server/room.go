@@ -870,14 +870,26 @@ func (r *Room) processGameAction(req *Request) *Outcome {
 	}
 
 	// SCORE-mode round-end: award points and either finish the match or start the
-	// next round immediately (rule.md R28).
+	// next round immediately (rule.md R28). The winner gains the total value of
+	// every opponent's remaining hand; additionally each non-winner is deducted
+	// the value of the cards remaining in their own hand (zero-sum "扣分").
 	if r.isScoreMode() && res.Ended {
 		winner := res.WinnerID
 		r.scores[winner] += res.RoundPoints
+		deltas := map[string]int{winner: res.RoundPoints}
+		for _, p := range r.game.Players {
+			if p.ID == winner {
+				continue
+			}
+			d := -game.HandPoints(p.Hand)
+			r.scores[p.ID] += d
+			deltas[p.ID] = d
+		}
 		r.roundResult = &game.RoundResult{
 			RoundNumber:    r.roundNum,
 			WinnerPlayerID: winner,
 			Points:         res.RoundPoints,
+			Deltas:         deltas,
 			Scores:         copyScore(r.scores),
 		}
 		if r.scores[winner] >= r.targetScore {

@@ -768,3 +768,282 @@ func TestAutoUNO_ClearedOnAcceptedFour(t *testing.T) {
 		t.Fatal("UNO flag should be cleared after accepting +4 (p0 drew 4 cards)")
 	}
 }
+
+// --- Stacking (rule.md R19-R21) ---
+
+func stackConfig() *Game {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("x0", ColorBlue, RankThree)},
+			{tcard("d2b", ColorBlue, RankDrawTwo), tcard("x1", ColorGreen, RankThree)},
+			{tcard("n2", ColorYellow, RankSeven)},
+		},
+		nil, tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	return g
+}
+
+func TestStack_DrawTwoHandsOffAndAccumulates(t *testing.T) {
+	g := stackConfig()
+	// A (p0) plays +2 -> B (p1) must decide in the stack phase.
+	res, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"})
+	if err != nil {
+		t.Fatalf("p0 plays +2: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 1 {
+		t.Fatalf("phase=%s current=%d, want stack/1", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 2 {
+		t.Fatalf("credits = %d, want 2", g.stackCredits)
+	}
+	if res.LegalMoves == nil || len(res.LegalMoves) != 1 || res.LegalMoves[0] != "d2b" {
+		t.Fatalf("stack playable = %v, want [d2b]", res.LegalMoves)
+	}
+
+	// B (p1) re-stacks with their +2 -> C (p2) now owes 4.
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "d2b"}); err != nil {
+		t.Fatalf("p1 stacks +2: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 2 {
+		t.Fatalf("phase=%s current=%d, want stack/2", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 4 {
+		t.Fatalf("accumulated credits = %d, want 4", g.stackCredits)
+	}
+	if g.Players[2].Hand[0].ID != "n2" {
+		t.Fatalf("p2 hand disturbed before accepting")
+	}
+}
+
+func TestStack_AcceptDrawsAccumulatedAndSkips(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("x0", ColorBlue, RankThree)},
+			{tcard("d2b", ColorBlue, RankDrawTwo), tcard("x1", ColorGreen, RankThree)},
+			{tcard("n2", ColorYellow, RankSeven)},
+		},
+		[]Card{tcard("p1", ColorRed, RankOne), tcard("p2", ColorBlue, RankOne),
+			tcard("p3", ColorGreen, RankOne), tcard("p4", ColorYellow, RankOne)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}) // B owes 2
+	_, _ = g.Apply("p1", Action{Type: ActionPlayCard, CardID: "d2b"}) // C owes 4
+	before := len(g.Players[2].Hand)
+	res, err := g.Apply("p2", Action{Type: ActionAcceptStack})
+	if err != nil {
+		t.Fatalf("p2 accepts stack: %v", err)
+	}
+	if len(g.Players[2].Hand) != before+4 {
+		t.Fatalf("p2 drew %d cards, want 4", len(g.Players[2].Hand)-before)
+	}
+	if g.Phase != PhaseTurn || g.CurrentIndex != 0 {
+		t.Fatalf("phase=%s current=%d, want turn/0 (p2 skipped)", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 0 {
+		t.Fatalf("stack credits not cleared, = %d", g.stackCredits)
+	}
+	_ = res
+}
+
+func TestStack_NonStackCardRejected(t *testing.T) {
+	g := stackConfig()
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}) // B in stack phase
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "x1"}); err == nil {
+		t.Fatal("playing a non-stack card in stack phase should be rejected")
+	}
+}
+
+func TestStack_MixedAllowsSwitchToFour(t *testing.T) {
+	// mixed_stacking: +2 heap may be re-stacked with a +4 (R21).
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("x0", ColorBlue, RankThree)},
+			{tcard("w4", ColorWild, RankWildDrawFour), tcard("x1", ColorGreen, RankThree)},
+			{tcard("n2", ColorYellow, RankSeven)},
+		},
+		nil, tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.MixedStacking = true
+	g.Config.HouseRules.StackDrawTwo = true
+	g.Config.HouseRules.StackDrawFour = true
+	g.Config.Cards.ChallengeDrawFour = false
+
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}) // B (p1) owes 2
+	red := ColorRed
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
+		t.Fatalf("p1 stacks +4 onto +2 heap: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 2 {
+		t.Fatalf("phase=%s current=%d, want stack/2", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 6 { // 2 + 4
+		t.Fatalf("credits = %d, want 6", g.stackCredits)
+	}
+}
+
+func TestStack_DrawFourRequiresNoChallenge(t *testing.T) {
+	c := DefaultConfig()
+	c.HouseRules.StackDrawFour = true
+	c.Cards.ChallengeDrawFour = true // conflicting
+	if err := c.Validate(); err == nil {
+		t.Fatal("stack_draw_four with challenge_draw_four should be rejected")
+	}
+	c.Cards.ChallengeDrawFour = false
+	if err := c.Validate(); err != nil {
+		t.Fatalf("stack_draw_four with challenge off should pass, got %v", err)
+	}
+}
+
+// TestStack_DrawTwoOnlyRejectsFour verifies that with +2 stacking on but +4
+// off, a +4 cannot be stacked onto a +2 heap (R19).
+func TestStack_DrawTwoOnlyRejectsFour(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("x0", ColorBlue, RankThree)},
+			{tcard("w4", ColorWild, RankWildDrawFour)},
+			{tcard("n2", ColorYellow, RankSeven)},
+		},
+		nil, tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}); err != nil {
+		t.Fatalf("p0 plays +2: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 1 {
+		t.Fatalf("phase=%s current=%d, want stack/1", g.Phase, g.CurrentIndex)
+	}
+	lm := g.LegalMoves("p1")
+	if len(lm.PlayableIDs) != 0 {
+		t.Fatalf("p1 stackable = %v, want none (p1 only holds a +4, +4 stacking off)", lm.PlayableIDs)
+	}
+	red := ColorRed
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err == nil {
+		t.Fatal("stacking a +4 onto a +2 heap with +4 stacking off should be rejected")
+	}
+	if g.Phase != PhaseStack || g.stackCredits != 2 {
+		t.Fatalf("state changed after rejected stack: phase=%s credits=%d", g.Phase, g.stackCredits)
+	}
+}
+
+// TestStack_DrawFourOnlyUsesFour verifies +4 stacking: a +4 heap uses 4-credit
+// increments and a +2 cannot stack onto it (R20).
+func TestStack_DrawFourOnlyUsesFour(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("w4", ColorWild, RankWildDrawFour), tcard("x0", ColorGreen, RankSeven)},
+			{tcard("n2", ColorGreen, RankNine)},
+			{tcard("p1", ColorBlue, RankOne), tcard("p2", ColorRed, RankSix)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
+			tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawFour = true
+	g.Config.Cards.ChallengeDrawFour = false
+	red := ColorRed
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
+		t.Fatalf("p0 plays +4: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 1 {
+		t.Fatalf("phase=%s current=%d, want stack/1", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 4 {
+		t.Fatalf("credits = %d, want 4", g.stackCredits)
+	}
+	// p1 has no stackable card (holds only a number): must accept.
+	before := len(g.Players[1].Hand)
+	if _, err := g.Apply("p1", Action{Type: ActionAcceptStack}); err != nil {
+		t.Fatalf("p1 accepts: %v", err)
+	}
+	if len(g.Players[1].Hand) != before+4 {
+		t.Fatalf("p1 drew %d cards, want 4", len(g.Players[1].Hand)-before)
+	}
+}
+
+// TestStack_MixedFourThenTwo verifies mixed stacking lets a +4 follow a +2 and
+// a +2 follow a +4, accumulating 2/4 each step (R21).
+func TestStack_MixedFourThenTwo(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("s0", ColorGreen, RankSeven)},
+			{tcard("w4", ColorWild, RankWildDrawFour), tcard("s1", ColorYellow, RankFive)},
+			{tcard("d2c", ColorBlue, RankDrawTwo), tcard("s2", ColorGreen, RankTwo)},
+			{tcard("p1", ColorGreen, RankNine), tcard("p2", ColorRed, RankSix)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
+			tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour),
+			tcard("q5", ColorGreen, RankThree), tcard("q6", ColorRed, RankFive),
+			tcard("q7", ColorYellow, RankFour), tcard("q8", ColorBlue, RankSix)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.MixedStacking = true
+	g.Config.Cards.ChallengeDrawFour = false
+	red := ColorRed
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"})                   // p1 owes 2
+	_, _ = g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}) // p2 owes 6
+	if g.stackCredits != 6 {
+		t.Fatalf("credits after +4 = %d, want 6", g.stackCredits)
+	}
+	_, _ = g.Apply("p2", Action{Type: ActionPlayCard, CardID: "d2c"}) // p3 owes 8
+	if g.CurrentIndex != 3 || g.Phase != PhaseStack || g.stackCredits != 8 {
+		t.Fatalf("after mixed stack current=%d phase=%s credits=%d, want 3/stack/8",
+			g.CurrentIndex, g.Phase, g.stackCredits)
+	}
+	before := len(g.Players[3].Hand)
+	if _, err := g.Apply("p3", Action{Type: ActionAcceptStack}); err != nil {
+		t.Fatalf("p3 accepts: %v", err)
+	}
+	if len(g.Players[3].Hand) != before+8 {
+		t.Fatalf("p3 drew %d cards, want 8", len(g.Players[3].Hand)-before)
+	}
+}
+
+// TestStack_FirstStepAcceptDrawsTwo verifies a lone +2 that is accepted at once
+// only draws 2 (no over-charging).
+func TestStack_FirstStepAcceptDrawsTwo(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("s0", ColorGreen, RankSeven)},
+			{tcard("p1", ColorGreen, RankNine)},
+			{tcard("p2", ColorRed, RankSix)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"})
+	if g.Phase != PhaseStack || g.CurrentIndex != 1 || g.stackCredits != 2 {
+		t.Fatalf("setup: phase=%s current=%d credits=%d", g.Phase, g.CurrentIndex, g.stackCredits)
+	}
+	before := len(g.Players[1].Hand)
+	if _, err := g.Apply("p1", Action{Type: ActionAcceptStack}); err != nil {
+		t.Fatalf("accept: %v", err)
+	}
+	if got := len(g.Players[1].Hand) - before; got != 2 {
+		t.Fatalf("p1 drew %d, want 2", got)
+	}
+}
+
+// TestStack_InvalidActionsRejected verifies draw and accept are phase-guarded.
+func TestStack_InvalidActionsRejected(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo)},
+			{tcard("p1", ColorGreen, RankNine)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	// Accept while in a normal turn phase is rejected.
+	if _, err := g.Apply("p0", Action{Type: ActionAcceptStack}); err == nil {
+		t.Fatal("accept_stack outside a stack phase should be rejected")
+	}
+	_, _ = g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"})
+	// Drawing during the stack phase is rejected.
+	if _, err := g.Apply("p1", Action{Type: ActionDrawCard}); err == nil {
+		t.Fatal("draw during stack phase should be rejected")
+	}
+}

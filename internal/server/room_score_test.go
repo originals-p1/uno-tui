@@ -106,3 +106,29 @@ func TestRoom_ScoreMode_MatchOverAtTarget(t *testing.T) {
 		t.Fatalf("p0 score = %d, want 4", v.Scores["p0"])
 	}
 }
+
+// TestRoom_ScoreMode_LoserDeductedByRemainingHand verifies the "扣分" rule:
+// each non-winner is deducted the value of the cards remaining in their own
+// hand, so p1 (holding a red four) goes to -4 while the winner gains the same.
+func TestRoom_ScoreMode_LoserDeductedByRemainingHand(t *testing.T) {
+	r := scoreRoom(t, 500)
+	out := r.Submit(NewRequest(KindPlayCard, "s0", "r1", exp(0), game.Action{
+		Type: game.ActionPlayCard, CardID: "a1",
+	}))
+	if !out.OK() {
+		t.Fatalf("winning play failed: %+v", out)
+	}
+	v := out.Commit.Requester
+	if v.Scores["p0"] != 4 {
+		t.Fatalf("p0 score = %d, want +4 (winner gains p1's hand)", v.Scores["p0"])
+	}
+	if v.Scores["p1"] != -4 {
+		t.Fatalf("p1 score = %d, want -4 (deducted own remaining hand)", v.Scores["p1"])
+	}
+	if v.RoundResult == nil || v.RoundResult.Deltas == nil {
+		t.Fatalf("round result should carry per-player deltas: %+v", v.RoundResult)
+	}
+	if v.RoundResult.Deltas["p0"] != 4 || v.RoundResult.Deltas["p1"] != -4 {
+		t.Fatalf("deltas = %+v, want p0 +4 / p1 -4", v.RoundResult.Deltas)
+	}
+}

@@ -45,6 +45,14 @@ type ChallengeView struct {
 	TriggerColor     string `json:"trigger_color,omitempty"`
 }
 
+// StackView describes an in-flight stacking penalty (rule.md R19-R21). It is
+// non-secret: it tells the UI how many cards the current player would draw on
+// accepting, and that an accept action is available.
+type StackView struct {
+	Credits      int  `json:"credits"`
+	YourDecision bool `json:"your_decision"` // true == it is your choice
+}
+
 // ChallengeResult is a transient outcome banner describing how a +4 challenge
 // resolved (rule.md R13). It is non-secret and shown to all players until the
 // next in-turn action clears it.
@@ -62,6 +70,7 @@ type RoundResult struct {
 	RoundNumber    int            `json:"round_number"`
 	WinnerPlayerID string         `json:"winner_player_id"`
 	Points         int            `json:"points"`
+	Deltas         map[string]int `json:"deltas"` // per-player change this round (winner +, others -)
 	Scores         map[string]int `json:"scores"`
 }
 
@@ -79,6 +88,7 @@ type GameView struct {
 	DrawDecision   *DrawDecisionView `json:"draw_decision,omitempty"`
 	Challenge      *ChallengeView    `json:"challenge,omitempty"`
 	ChallengeRes   *ChallengeResult  `json:"challenge_result,omitempty"`
+	Stack          *StackView        `json:"stack,omitempty"`
 	Paused         *PausedView       `json:"paused,omitempty"`
 	WinnerPlayerID string            `json:"winner_player_id,omitempty"`
 	EndReason      string            `json:"end_reason,omitempty"`
@@ -147,6 +157,12 @@ func (g *Game) BuildViewFor(playerID string) *GameView {
 			ResolverPlayerID: g.challengeResolver,
 			YourDecision:     playerID == g.currentPlayer().ID,
 			TriggerColor:     g.challengeTriggerColor,
+		}
+	}
+	if g.Phase == PhaseStack {
+		v.Stack = &StackView{
+			Credits:     g.stackCredits,
+			YourDecision: playerID == g.currentPlayer().ID,
 		}
 	}
 	if g.lastChallengeResult != nil {

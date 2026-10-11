@@ -136,6 +136,18 @@ func (c Config) Marshal() ([]byte, error) { return json.Marshal(c) }
 
 // Validate checks ranges, dependencies, and conflicts (rule.md §0.4 + §12).
 // It is the single authoritative config gate; the room rejects invalid configs.
+// stackingDrawTwo reports whether +2 stacking is enabled: explicitly via
+// stack_draw_two, or implied by mixed_stacking (rule.md R19/R21).
+func (c Config) stackingDrawTwo() bool {
+	return c.HouseRules.StackDrawTwo || c.HouseRules.MixedStacking
+}
+
+// stackingDrawFour reports whether +4 stacking is enabled: explicitly via
+// stack_draw_four, or implied by mixed_stacking (rule.md R20/R21).
+func (c Config) stackingDrawFour() bool {
+	return c.HouseRules.StackDrawFour || c.HouseRules.MixedStacking
+}
+
 func (c Config) Validate() error {
 	if c.Room.MaxPlayers < 2 || c.Room.MaxPlayers > 4 {
 		return fmt.Errorf("max_players must be 2-4 (v2 scope), got %d", c.Room.MaxPlayers)
@@ -171,8 +183,10 @@ func (c Config) Validate() error {
 	}
 
 	// Conflicts from rule.md §12, restricted to the implemented surface.
-	if c.HouseRules.MixedStacking && (c.HouseRules.StackDrawTwo || c.HouseRules.StackDrawFour) {
-		return fmt.Errorf("mixed_stacking cannot combine with explicit stack_draw_two/stack_draw_four")
+	// +4 stacking (stack_draw_four or implied by mixed_stacking) disables the
+	// single-card +4 challenge (rule.md R20 constraint; §12 matrix).
+	if (c.HouseRules.StackDrawFour || c.HouseRules.MixedStacking) && c.Cards.ChallengeDrawFour {
+		return fmt.Errorf("stack_draw_four/mixed_stacking requires challenge_draw_four=false")
 	}
 	used := c.futureFieldsEnabled()
 	if len(used) > 0 {
@@ -212,15 +226,6 @@ func (c Config) futureFieldsEnabled() []string {
 	}
 	if c.HouseRules.AllowVoluntaryPass {
 		on = append(on, "allow_voluntary_pass")
-	}
-	if c.HouseRules.StackDrawTwo {
-		on = append(on, "stack_draw_two")
-	}
-	if c.HouseRules.StackDrawFour {
-		on = append(on, "stack_draw_four")
-	}
-	if c.HouseRules.MixedStacking {
-		on = append(on, "mixed_stacking")
 	}
 	if c.HouseRules.SevenZeroRule {
 		on = append(on, "seven_zero_rule")
