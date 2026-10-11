@@ -56,7 +56,7 @@ func (m Model) renderBody(o RenderOpts) string {
 	}
 	banner := ""
 	if m.mode() != ModeChallenge && m.mode() != ModeRules && m.mode() != ModeConfigEdit {
-		banner = m.challengeResultBanner(o)
+		banner = m.challengeResultBanner(o) + m.scoreBanner(o)
 	}
 	switch m.mode() {
 	case ModeLobby:
@@ -108,23 +108,18 @@ func (m Model) renderLobby(o RenderOpts) string {
 func (m Model) renderGame(o RenderOpts) string {
 	var b strings.Builder
 	s := m.Snap
+	// Score-match header (rule.md R28).
+	if s.WinMode == game.WinScore {
+		b.WriteString(m.renderScoreLine(o))
+	}
 	// Players summary.
 	b.WriteString("玩家：\n")
 	for _, p := range s.Players {
 		b.WriteString("  " + playerLine(m, p, o) + "\n")
 	}
 	// Board info.
-	dir := "→"
-	if !o.Unicode {
-		dir = "->"
-	}
-	if s.Direction < 0 {
-		dir = "←"
-		if !o.Unicode {
-			dir = "<-"
-		}
-	}
-	b.WriteString(fmt.Sprintf("\n轮到：%s （%s）\n", m.displayName(s.CurrentPlayer), dir))
+	b.WriteString(fmt.Sprintf("\n轮到：%s （出牌方向 %s）\n", m.displayName(s.CurrentPlayer), dirArrow(s.Direction, o)))
+	b.WriteString(m.renderTurnOrder(o))
 	b.WriteString(fmt.Sprintf("桌面：%s   当前颜色：%s\n\n", cardText(s.TopCard), colorNameZh(s.ActiveColor)))
 	// Own hand (stable order). Framed with a bright border on your turn so the
 	// need to act is unmissable.
@@ -145,9 +140,13 @@ func (m Model) renderHand(o RenderOpts) string {
 	for _, id := range m.Snap.PlayableIDs {
 		playable[id] = true
 	}
+	big := len(hand) > 10
 	var b strings.Builder
 	if m.isMyTurn() {
 		b.WriteString("你的手牌（按数字出牌，d 摸牌）：\n")
+		if big {
+			b.WriteString("  （手牌较多：↑/↓ 移动 ▶ 光标，回车打出选中牌）\n")
+		}
 	} else {
 		b.WriteString("你的手牌：\n")
 	}
@@ -169,7 +168,11 @@ func (m Model) renderHand(o RenderOpts) string {
 		if i == 9 {
 			num = "0"
 		}
-		line := fmt.Sprintf("  %s [%s] %s", cardColorIcon(c, o.Color), num, cardText(c))
+		cursor := "  "
+		if big && i == m.handSel {
+			cursor = "▶ "
+		}
+		line := fmt.Sprintf("%s%s [%s] %s", cursor, cardColorIcon(c, o.Color), num, cardText(c))
 		if playable[c.ID] {
 			line += "  <- 可出"
 			if o.Color {
@@ -277,6 +280,103 @@ func (m Model) challengeResultBanner(o RenderOpts) string {
 	return b.String()
 }
 
+// renderTurnOrder renders a compact, arrow-joined line showing the cyclic order
+// of play starting from the current player, in the current direction. It gives
+// an at-a-glance "who comes next in which direction" hint during a game.
+func (m Model) renderTurnOrder(o RenderOpts) string {
+	s := m.Snap
+	if s == nil || len(s.Players) < 2 || s.Phase == string(game.PhaseLobby) {
+		return ""
+	}
+	arrow := dirArrow(s.Direction, o)
+	cur := "▶"
+	dirWord := "顺时针（在下方）"
+	if s.Direction < 0 {
+		dirWord = "逆时针（在上方）"
+	}
+	if !o.Unicode {
+		cur = ">"
+		dirWord = "顺时针(下方)"
+		if s.Direction < 0 {
+			dirWord = "逆时针(上方)"
+		}
+	}
+	n := len(s.Players)
+	// Locate the current player's seat index so the sequence starts there.
+	start := 0
+	for i, p := range s.Players {
+		if p.ID == s.CurrentPlayer {
+			start = i
+			break
+		}
+	}
+	seq := make([]string, 0, n)
+	for k := 0; k < n; k++ {
+		idx := (start + s.Direction*k) % n
+		if idx < 0 {
+			idx += n
+		}
+		seq = append(seq, m.displayName(s.Players[idx].ID))
+	}
+	line := "出牌方向 " + dirWord + "：" + cur + seq[0]
+	for _, name := range seq[1:] {
+		line += " " + arrow + " " + name
+	}
+	line += " " + arrow + " " + cur + "回到起点"
+	return "\n" + line + "\n"
+}
+
+// dirArrow returns the play-direction arrow for the current direction. Because
+// the player roster is drawn top-to-bottom in seat order, a clockwise (direction
+// +1) pass goes to the next seat below (↓ / v) and counter-clockwise goes up
+// (↑ / ^).
+func dirArrow(direction int, o RenderOpts) string {
+	if direction < 0 {
+		if o.Unicode {
+			return "↑"
+		}
+		return "^"
+	}
+	if o.Unicode {
+		return "↓"
+	}
+	return "v"
+}
+
+// scoreBanner renders the transient "round finished" banner shown at the very
+// start of the following round in a SCORE-mode match (rule.md R28). It is
+// suppressed on the final/match-over finished screen, which renderFinished
+// covers in full.
+func (m Model) scoreBanner(o RenderOpts) string {
+	s := m.Snap
+	if s == nil || s.RoundResult == nil || s.MatchOver {
+		return ""
+	}
+	rr := s.RoundResult
+	name := m.displayName(rr.WinnerPlayerID)
+	line := fmt.Sprintf("第 %d 回合结束：%s 获得 %d 分。", rr.RoundNumber, name, rr.Points)
+	if o.Color {
+		return successStyle(line) + "\n"
+	}
+	return "  " + line + "\n"
+}
+
+// renderScoreLine renders a one-line score-match status (round number, target,
+// and each player's running total) above the roster (rule.md R28).
+func (m Model) renderScoreLine(o RenderOpts) string {
+	s := m.Snap
+	if s == nil {
+		return ""
+	}
+	line := fmt.Sprintf("积分赛 第 %d 局 —— 先到 %d 分获胜：", s.RoundNumber, s.TargetScore)
+	parts := make([]string, 0, len(s.Players))
+	for _, p := range s.Players {
+		parts = append(parts, fmt.Sprintf("%s %d", m.displayName(p.ID), s.Scores[p.ID]))
+	}
+	line += strings.Join(parts, "   ")
+	return line + "\n"
+}
+
 func (m Model) renderRules(o RenderOpts) string {
 	var b strings.Builder
 	b.WriteString("当前规则：\n")
@@ -289,6 +389,10 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  初始手牌：%d 张\n", c.Game.InitialHandSize))
 	b.WriteString(fmt.Sprintf("  初始方向：%s\n", dirNameZh(c.Game.InitialDir)))
 	b.WriteString(fmt.Sprintf("  先手：%s\n", firstPlayerZh(c.Game.FirstPlayerMode)))
+	b.WriteString(fmt.Sprintf("  胜负模式：%s\n", winModeZh(c.Game.WinMode)))
+	if c.Game.WinMode == game.WinScore {
+		b.WriteString(fmt.Sprintf("  目标积分：%d 分\n", c.Game.TargetScore))
+	}
 	b.WriteString("  牌组：经典 108 张\n")
 	b.WriteString(fmt.Sprintf("  万能：%s\n", onOff(c.Cards.EnableWild)))
 	b.WriteString(fmt.Sprintf("  +4：%s\n", onOff(c.Cards.EnableDrawFour)))
@@ -382,6 +486,26 @@ var cfgItems = []cfgEditItem{
 	toggleItem("+4 挑战", "challenge"),
 	toggleItem("动作牌可收尾", "finish"),
 	toggleItem("自动 UNO", "auto_uno"),
+	{
+		label: "胜负模式",
+		show:  func(c *game.Config) string { return winModeZh(c.Game.WinMode) },
+		next:  func(c *game.Config) { c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, 1) },
+		prev:  func(c *game.Config) { c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, -1) },
+	},
+	{
+		label: "目标积分",
+		show:  func(c *game.Config) string { return fmt.Sprintf("%d 分", c.Game.TargetScore) },
+		next:  func(c *game.Config) { c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, 1) },
+		prev:  func(c *game.Config) { c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, -1) },
+	},
+}
+
+// winModeZh renders the win-mode label for the rules/config editor.
+func winModeZh(m string) string {
+	if m == game.WinScore {
+		return "积分赛"
+	}
+	return "单局"
 }
 
 // toggleItem builds a boolean (开/关) editor row bound to one config alias.
@@ -544,6 +668,25 @@ func (m Model) renderFinished(o RenderOpts) string {
 	if m.Snap == nil {
 		return ""
 	}
+	// SCORE-mode match over: show the match champion and final scorebook.
+	if m.Snap.WinMode == game.WinScore && m.Snap.MatchOver {
+		champ := m.displayName(m.Snap.MatchWinnerPlayerID)
+		if champ == "" {
+			champ = "某人"
+		}
+		b.WriteString("积分赛结束 — " + champ + " 率先达到 " + fmt.Sprint(m.Snap.TargetScore) + " 分夺冠！\n")
+		b.WriteString("\n最终积分（共 " + fmt.Sprint(m.Snap.RoundNumber) + " 局）：\n")
+		for _, p := range m.Snap.Players {
+			mark := "  "
+			if p.ID == m.Snap.MatchWinnerPlayerID {
+				mark = "★ "
+			}
+			b.WriteString(fmt.Sprintf("%s%s  %d 分\n", mark, p.Name, m.Snap.Scores[p.ID]))
+		}
+		b.WriteString("\n  (b) 返回大厅，再开一局   (l) 离开房间\n")
+		return b.String()
+	}
+
 	w := m.displayName(m.Snap.WinnerPlayerID)
 	if w == "" {
 		w = "某人"
@@ -659,7 +802,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeHistory:
 		return "按键：1-9/0=展开回放 q=返回 h=帮助"
 	default:
-		return "按键：1-9=出牌 d=摸牌 h=帮助 q=退出"
+		return "按键：1-9=出牌 ↑/↓=选牌回车=打出 d=摸牌 h=帮助 q=退出"
 	}
 }
 
@@ -674,9 +817,11 @@ func (m Model) renderHelp(o RenderOpts) string {
   s       开始游戏（仅房主）
 
 你的回合：
-  1-9/0   打出对应的那张牌
+  1-9/0   打出对应的那张牌（手牌超过 10 张时改用 ↑/↓ + 回车）
+  ↑/↓     在手牌中移动 ▶ 光标（大数量手牌）
+  回车     打出光标选中的牌
   d/空格  摸一张牌
-  轮到你 / 需作 +4 决定时，终端会响铃提醒 (\a)
+  轮到你 / 需作 +4 决定时，终端会响铃提醒 (\a)；有玩家加入大厅时也会响铃
 
 摸牌后：
   p       打出刚摸的牌

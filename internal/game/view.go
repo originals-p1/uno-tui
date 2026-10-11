@@ -54,6 +54,17 @@ type ChallengeResult struct {
 	ChallengerPlayerID string `json:"challenger_player_id"`
 }
 
+// RoundResult is a transient banner describing the just-completed round of a
+// SCORE-mode match (rule.md R28). It is attached to the view of the first state
+// of the following round so clients can show "Player X earned N points" before
+// play resumes, and cleared as soon as a new in-round action lands.
+type RoundResult struct {
+	RoundNumber    int            `json:"round_number"`
+	WinnerPlayerID string         `json:"winner_player_id"`
+	Points         int            `json:"points"`
+	Scores         map[string]int `json:"scores"`
+}
+
 // GameView is the full personalized view of the table.
 type GameView struct {
 	RoomRevision   uint64            `json:"room_revision"`
@@ -73,6 +84,16 @@ type GameView struct {
 	EndReason      string            `json:"end_reason,omitempty"`
 	LastEventID    uint64            `json:"last_event_id"`
 	History        []GameEvent       `json:"history"`
+
+	// SCORE-mode match fields (rule.md R28), populated by the room, not the
+	// per-round engine. Empty in single-round mode.
+	WinMode            string            `json:"win_mode,omitempty"`
+	RoundNumber        int               `json:"round_number,omitempty"`
+	TargetScore        int               `json:"target_score,omitempty"`
+	Scores             map[string]int    `json:"scores,omitempty"`
+	MatchOver          bool              `json:"match_over,omitempty"`
+	MatchWinnerPlayerID string           `json:"match_winner_player_id,omitempty"`
+	RoundResult        *RoundResult      `json:"round_result,omitempty"`
 }
 
 // BuildViewFor returns a personalized view for playerID. Different players

@@ -29,11 +29,12 @@ v1 “已锁定规则”声明被本文件取代；`readme.md` 仅保留为总�
 - **自动 UNO**（默认开启，`auto_uno`）。
 - **+4 挑战**：`challenge_draw_four` 默认开启，按 R13 实现。
 - **单局胜负**（`win_mode=SINGLE_ROUND`）。
+- **500 分积分赛**（`win_mode=SCORE`，`target_score` 默认 500，多回合累计，见 R28/R29）。
 - **断线**：`PAUSE` 策略（v2 默认）+ 可配置宽限期。
 
 不在 v2 实现、但**配置结构与 ValidateConfig 预留**、并在本文件明确标注“延后 / 未来”的：
 抢牌、多张连出、摸到能出、强制出牌、主动跳过、叠加、7-0、扩展牌组（EXTENDED_112）、
-手动 UNO、回合计时、积分赛、观战、断线托管（AUTO_PLAY/FORFEIT）、leave_policy、
+手动 UNO、回合计时、观战、断线托管（AUTO_PLAY/FORFEIT）、leave_policy、
 Host 迁移、规则预设页。
 
 ## 0.3 自洽性决议（本次修复 A 类问题）
@@ -1014,8 +1015,8 @@ Agent 必须实现配置依赖检查。
     "initial_hand_size": 7,         /* 5 / 7 / 10 */
     "initial_direction": "CLOCKWISE",   /* CLOCKWISE | COUNTER_CLOCKWISE | RANDOM */
     "first_player_mode": "AFTER_DEALER",/* AFTER_DEALER | RANDOM | HOST */
-    "win_mode": "SINGLE_ROUND",     /* v2 仅 SINGLE_ROUND；SCORE future */
-    "target_score": 500,            /* future（仅 SCORE 生效） */
+    "win_mode": "SINGLE_ROUND",     /* SINGLE_ROUND | SCORE（积分赛，R28） */
+    "target_score": 500,            /* 100-2000（仅 SCORE 生效，R29） */
     "turn_timeout_seconds": 0       /* future（0 表示不限时） */
   },
   "cards": {

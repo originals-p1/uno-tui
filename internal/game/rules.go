@@ -327,6 +327,7 @@ func (g *Game) discardFromHand(pi int, card Card, chosen *Color) *Result {
 		g.EndReason = "win"
 		res.Ended = true
 		res.WinnerID = g.WinnerPlayerID
+		res.RoundPoints = g.RoundPoints(g.WinnerPlayerID)
 		res.Events = append(res.Events, g.event(EventWinner, g.Players[pi].ID, nil, ""))
 		return res
 	}
@@ -440,6 +441,7 @@ func (g *Game) maybeResolveDeferredWin(res *Result) {
 	g.pendingWinPlayerID = ""
 	res.Ended = true
 	res.WinnerID = g.WinnerPlayerID
+	res.RoundPoints = g.RoundPoints(g.WinnerPlayerID)
 	res.Events = append(res.Events, g.event(EventWinner, g.WinnerPlayerID, nil, ""))
 }
 

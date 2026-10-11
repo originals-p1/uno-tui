@@ -259,8 +259,12 @@ func TestReadLine_Basic(t *testing.T) {
 }
 
 // TestRunWizard_HostPath boots through the guided wizard (name + host + port 0
-// + no key) and confirms it connects, then shuts down cleanly.
+// + no key) and confirms it connects, then shuts down cleanly. The wizard's
+// persisted config is redirected to a temp file so tests never write beside
+// the source.
 func TestRunWizard_HostPath(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envUnoConfig, filepath.Join(dir, "uno-config.json"))
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	out := &lockedBuf{}
@@ -278,6 +282,74 @@ func TestRunWizard_HostPath(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "connected as host player") {
 		t.Fatalf("wizard host never connected; output=%q", out.String())
+	}
+	cancel()
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("wizard returned error on graceful shutdown: %v", err)
+		}
+	case <-time.After(5 * time.Second):
+		t.Fatalf("wizard did not shut down, output=%q", out.String())
+	}
+}
+
+// TestWizardConfig_Roundtrip verifies the wizard config persists a user's
+// answers (never any key value) and reloads them as next-launch defaults.
+func TestWizardConfig_Roundtrip(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "uno-config.json")
+	t.Setenv(envUnoConfig, path)
+
+	c := wizardConfig{Name: "Alice", Mode: "host", Port: 8888, UseKey: true, KeyFile: "room.key"}
+	if err := c.save(); err != nil {
+		t.Fatalf("save: %v", err)
+	}
+	got := loadWizardConfig()
+	if got.Name != "Alice" || got.Mode != "host" || got.Port != 8888 || !got.UseKey || got.KeyFile != "room.key" {
+		t.Fatalf("roundtrip mismatch: %+v", got)
+	}
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("config file not written: %v", err)
+	}
+	b, _ := os.ReadFile(path)
+	if strings.Contains(string(b), "KeyFile") && !strings.Contains(string(b), "room.key") {
+		t.Fatal("config must only store the key-file path, never key material")
+	}
+}
+
+// TestRunWizard_RemembersDefaults seeds a saved config and runs the wizard with
+// nothing but Enter presses, asserting it reuses the stored settings and only
+// asks the default questions.
+func TestRunWizard_RemembersDefaults(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv(envUnoConfig, filepath.Join(dir, "uno-config.json"))
+
+	c := wizardConfig{Name: "Bob", Mode: "host", Port: 0, UseKey: false}
+	if err := c.save(); err != nil {
+		t.Fatalf("seed save: %v", err)
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	out := &lockedBuf{}
+	done := make(chan error, 1)
+	// All Enter: each prompt falls back to the remembered default.
+	go func() {
+		done <- run(ctx, strings.NewReader("\n\n\n\n"), nil, out, &lockedBuf{})
+	}()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(out.String(), "connected as host player") {
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !strings.Contains(out.String(), "connected as host player") {
+		t.Fatalf("Enter-through host never connected; output=%q", out.String())
+	}
+	// The wizard should have shown Bob as the remembered name default.
+	if !strings.Contains(out.String(), "默认 Bob") {
+		t.Fatalf("remembered name default not shown; output=%q", out.String())
 	}
 	cancel()
 	select {

@@ -128,6 +128,41 @@ func numberRank(d int) Rank {
 	}
 }
 
+// CardPoints returns the score value of a card in a SCORE-mode round
+// (rule.md R28): number cards are worth their face value, Skip/Reverse/DrawTwo
+// are 20, Wild and Wild Draw Four are 50.
+func CardPoints(c Card) int {
+	switch c.Rank {
+	case RankSkip, RankReverse, RankDrawTwo:
+		return 20
+	case RankWild, RankWildDrawFour:
+		return 50
+	}
+	for _, d := range "0123456789" {
+		if c.Rank == Rank(d) {
+			return int(d - '0')
+		}
+	}
+	return 0
+}
+
+// RoundPoints computes the SCORE-mode points awarded to winnerID at the end of
+// the round: the sum of the point values of every OTHER player's remaining hand
+// cards (rule.md R28). Callers should only call this on a finished game.
+func (g *Game) RoundPoints(winnerID string) int {
+	total := 0
+	for i := range g.Players {
+		p := &g.Players[i]
+		if p.ID == winnerID {
+			continue
+		}
+		for _, c := range p.Hand {
+			total += CardPoints(c)
+		}
+	}
+	return total
+}
+
 // IndexOf returns the index of the first card in hand with the given ID, or
 // -1 if not found.
 func IndexOf(hand []Card, id string) int {

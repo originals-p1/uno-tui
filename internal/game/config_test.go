@@ -49,10 +49,36 @@ func TestValidate_FutureFieldsRejected(t *testing.T) {
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "seven_zero_rule") {
 		t.Fatalf("want future-field rejection mentioning seven_zero_rule, got %v", err)
 	}
+}
+
+func TestValidate_ScoreMode(t *testing.T) {
+	c := DefaultConfig()
+	c.Game.WinMode = WinScore
+	if err := c.Validate(); err != nil {
+		t.Fatalf("SCORE mode with default target must validate, got %v", err)
+	}
+	// target_score too low for SCORE mode.
+	c.Game.TargetScore = 50
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "target_score") {
+		t.Fatalf("want rejection of target_score 50, got %v", err)
+	}
+	// target_score too high for SCORE mode.
+	c.Game.TargetScore = 5000
+	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "target_score") {
+		t.Fatalf("want rejection of target_score 5000, got %v", err)
+	}
+	// A custom in-range target is allowed.
 	c = DefaultConfig()
 	c.Game.WinMode = WinScore
+	c.Game.TargetScore = 1000
+	if err := c.Validate(); err != nil {
+		t.Fatalf("target_score 1000 must validate, got %v", err)
+	}
+	// Bad win_mode is rejected.
+	c = DefaultConfig()
+	c.Game.WinMode = "SOMETHING"
 	if err := c.Validate(); err == nil || !strings.Contains(err.Error(), "win_mode") {
-		t.Fatalf("want rejection of SCORE (future), got %v", err)
+		t.Fatalf("want rejection of bad win_mode, got %v", err)
 	}
 }
 

@@ -112,70 +112,121 @@ func joinAddress(hostPort string) (string, error) {
 // launches the game. It is the recommended way to start uno.
 func runWizard(ctx context.Context, in io.Reader, out, errOut io.Writer) error {
 	fmt.Fprintf(out, "uno %s — Terminal UNO\n\n", version)
-	fmt.Fprintln(out, "（下面的选项直接回车使用默认值）")
+	fmt.Fprintln(out, "（括号内为上次的配置，直接回车即可沿用）")
 
-	name, err := prompt(in, out, "你的昵称（默认取自系统用户名）: ")
+	cfg := loadWizardConfig()
+
+	defName := cfg.Name
+	if defName == "" {
+		defName = defaultName() // always resolve, so the hint shows what Enter will use
+	}
+	name, err := promptDefault(in, out, "你的昵称", defName)
 	if err != nil {
 		return err
 	}
 	if name == "" {
-		name = defaultName()
+		name = defName
 	}
-	o := &cliOpts{name: name, port: defaultPort}
+	cfg.Name = name
 
-	mode, err := prompt(in, out, "开房还是加入？[H]ost / [J]oin（默认 Host）: ")
+	defMode := cfg.Mode
+	if defMode == "" {
+		defMode = "host"
+	}
+	mode, err := promptDefault(in, out, "开房还是加入？[H]ost / [J]oin", defMode)
 	if err != nil {
 		return err
 	}
-	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(mode)), "j") {
-		return wizardJoin(ctx, o, in, out, errOut)
+	isJoin := strings.HasPrefix(strings.ToLower(strings.TrimSpace(mode)), "j")
+	cfg.Mode = "host"
+	if isJoin {
+		cfg.Mode = "join"
 	}
-	return wizardHost(ctx, o, in, out, errOut)
+	if isJoin {
+		return wizardJoin(ctx, &cfg, in, out, errOut)
+	}
+	return wizardHost(ctx, &cfg, in, out, errOut)
 }
 
 // wizardHost collects hosting settings, then launches the server + host client.
-func wizardHost(ctx context.Context, o *cliOpts, in io.Reader, out, errOut io.Writer) error {
-	p, err := prompt(in, out, "监听端口（默认 7777）: ")
+func wizardHost(ctx context.Context, cfg *wizardConfig, in io.Reader, out, errOut io.Writer) error {
+	defPort := cfg.Port
+	if defPort == 0 {
+		defPort = defaultPort
+	}
+	p, err := promptDefault(in, out, "监听端口", strconv.Itoa(defPort))
 	if err != nil {
 		return err
 	}
-	if p != "" {
-		n, aerr := strconv.Atoi(p)
-		if aerr != nil {
-			return fmt.Errorf("无效端口 %q", p)
-		}
-		o.port = n
+	if p == "" {
+		p = strconv.Itoa(defPort)
 	}
-	useKey, err := prompt(in, out, "使用房间密钥文件吗？[y/N]（默认 N，无密钥）:")
+	n, aerr := strconv.Atoi(strings.TrimSpace(p))
+	if aerr != nil {
+		return fmt.Errorf("无效端口 %q", p)
+	}
+	cfg.Port = n
+
+	defUse, defKey := "n", cfg.KeyFile
+	if cfg.UseKey {
+		defUse = "y"
+		if defKey == "" {
+			defKey = "room.key"
+		}
+	}
+	useKey, err := promptDefault(in, out, "使用房间密钥文件吗？[y/N]", defUse)
 	if err != nil {
 		return err
 	}
 	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(useKey)), "y") {
-		o.roomKeyFile, err = prompt(in, out, "密钥文件路径（默认 room.key）: ")
+		cfg.UseKey = true
+		cfg.KeyFile, err = promptDefault(in, out, "密钥文件路径", defKey)
 		if err != nil {
 			return err
 		}
-		if o.roomKeyFile == "" {
-			o.roomKeyFile = "room.key"
+		if cfg.KeyFile == "" {
+			cfg.KeyFile = "room.key"
 		}
+	} else {
+		cfg.UseKey = false
+		cfg.KeyFile = ""
 	}
+
+	if err := cfg.save(); err != nil {
+		fmt.Fprintf(errOut, "提示: 保存启动配置失败: %v\n", err)
+	}
+	o := &cliOpts{name: cfg.Name, port: cfg.Port, roomKeyFile: cfg.KeyFile}
 	return launchHost(ctx, o, out, errOut)
 }
 
 // wizardJoin collects the target address and optional key, then joins a room.
-func wizardJoin(ctx context.Context, o *cliOpts, in io.Reader, out, errOut io.Writer) error {
-	addr, err := prompt(in, out, "房间地址 HOST[:PORT]（默认端口 7777）: ")
+func wizardJoin(ctx context.Context, cfg *wizardConfig, in io.Reader, out, errOut io.Writer) error {
+	defAddr := cfg.Addr
+	if defAddr == "" {
+		defAddr = "localhost"
+	}
+	addr, err := promptDefault(in, out, "房间地址 HOST[:PORT]", defAddr)
 	if err != nil {
 		return err
 	}
 	if addr == "" {
-		addr = "localhost"
+		addr = defAddr
 	}
-	o.addr = addr
-	o.roomKeyFile, err = prompt(in, out, "房间密钥文件（没有则直接回车）: ")
+	cfg.Addr = addr
+	// Avoid a doubled hint when a key file is remembered.
+	keyLabel := "房间密钥文件（没有则直接回车）"
+	if cfg.KeyFile != "" {
+		keyLabel = "房间密钥文件"
+	}
+	cfg.KeyFile, err = promptDefault(in, out, keyLabel, cfg.KeyFile)
 	if err != nil {
 		return err
 	}
+
+	if err := cfg.save(); err != nil {
+		fmt.Fprintf(errOut, "提示: 保存启动配置失败: %v\n", err)
+	}
+	o := &cliOpts{name: cfg.Name, addr: cfg.Addr, roomKeyFile: cfg.KeyFile}
 	return launchJoin(ctx, o, out, errOut)
 }
 
@@ -189,12 +240,40 @@ func prompt(in io.Reader, out io.Writer, label string) (string, error) {
 	return strings.TrimSpace(line), nil
 }
 
-// readLine reads a single line (without the trailing newline) from in.
+// promptDefault is prompt with a remembered default: the label shows the
+// previous value, and an empty Enter reuses it.
+func promptDefault(in io.Reader, out io.Writer, label, def string) (string, error) {
+	if def != "" {
+		label = fmt.Sprintf("%s（默认 %s）: ", label, def)
+	} else {
+		label = label + ": "
+	}
+	v, err := prompt(in, out, label)
+	if err != nil {
+		return "", err
+	}
+	if v == "" {
+		return def, nil
+	}
+	return v, nil
+}
+
+// readLine reads a single line (without the trailing newline) from in. It
+// reuses one buffered reader per input so that look-ahead buffering cannot
+// swallow subsequent lines across multiple prompts (which would silently drop
+// later answers and fall back to defaults).
+var lineBuf *bufio.Reader
+var lineBufFrom io.Reader
+
 func readLine(in io.Reader) (string, error) {
 	if in == nil {
 		return "", io.EOF
 	}
-	b, err := bufio.NewReader(in).ReadString('\n')
+	if lineBuf == nil || lineBufFrom != in {
+		lineBuf = bufio.NewReader(in)
+		lineBufFrom = in
+	}
+	b, err := lineBuf.ReadString('\n')
 	if err != nil && err != io.EOF {
 		return "", err
 	}

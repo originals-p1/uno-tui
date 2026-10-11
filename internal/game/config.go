@@ -158,6 +158,14 @@ func (c Config) Validate() error {
 	default:
 		return fmt.Errorf("first_player_mode must be one of %q", []string{FirstAfterDealer, FirstRandom, FirstHost})
 	}
+	switch c.Game.WinMode {
+	case WinSingleRound, WinScore:
+	default:
+		return fmt.Errorf("win_mode must be one of %q", []string{WinSingleRound, WinScore})
+	}
+	if c.Game.WinMode == WinScore && (c.Game.TargetScore < 100 || c.Game.TargetScore > 2000) {
+		return fmt.Errorf("target_score must be 100-2000 for SCORE mode, got %d", c.Game.TargetScore)
+	}
 	if c.Room.DisconnectTimeoutSec < 0 {
 		return fmt.Errorf("disconnect_timeout_seconds must be >= 0")
 	}
@@ -186,12 +194,6 @@ func (c Config) futureFieldsEnabled() []string {
 	}
 	if c.Room.HostLeavePolicy != "" && c.Room.HostLeavePolicy != HostCloseRoom {
 		on = append(on, "host_leave_policy="+c.Room.HostLeavePolicy)
-	}
-	if c.Game.WinMode != "" && c.Game.WinMode != WinSingleRound {
-		on = append(on, "win_mode="+c.Game.WinMode)
-	}
-	if c.Game.TargetScore != 0 && c.Game.TargetScore != 500 {
-		on = append(on, "target_score")
 	}
 	if c.Game.TurnTimeoutSec != 0 {
 		on = append(on, "turn_timeout_seconds")

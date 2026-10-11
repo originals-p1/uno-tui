@@ -32,6 +32,10 @@ type Result struct {
 	EndReason    string
 	NextPlayerID string
 	LegalMoves   []string // playable card IDs for the next current player
+	// RoundPoints is the SCORE-mode points awarded to the round winner for this
+	// round (sum of opponents' remaining hand-card points, rule.md R28). It is
+	// only set when the round ended (Ended == true).
+	RoundPoints int
 }
 
 // LegalMoves returns the set of playable card IDs for a player, or nil in a

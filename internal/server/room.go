@@ -201,6 +201,15 @@ type Room struct {
 	prevPhase      game.Phase
 	started        bool
 
+	// SCORE-mode match state (rule.md R28): accumulated points across rounds,
+	// the current round number, and the match outcome. Only used in SCORE mode.
+	scores      map[string]int
+	roundNum    int
+	targetScore int
+	matchWinner string
+	matchOver   bool
+	roundResult *game.RoundResult
+
 	caches map[string]*idemCache
 
 	// deadline scheduling
@@ -623,6 +632,7 @@ func (r *Room) processStartGame(req *Request) *Outcome {
 	r.game = g
 	r.started = true
 	r.configLocked = true
+	r.beginScorebook()
 	r.revision++
 	r.game.RoomRevision = r.revision
 	out := &Outcome{Commit: &Commit{Revision: r.revision, Requester: r.buildView(playerID), Views: r.buildViews()}}
@@ -705,6 +715,12 @@ func (r *Room) processRematch(req *Request) *Outcome {
 	r.configLocked = false
 	r.disconnected = map[string]time.Time{}
 	r.prevPhase = ""
+	r.scores = nil
+	r.roundNum = 0
+	r.targetScore = 0
+	r.matchWinner = ""
+	r.matchOver = false
+	r.roundResult = nil
 	r.revision++
 	return &Outcome{Commit: &Commit{
 		Revision:  r.revision,
@@ -807,6 +823,10 @@ func (r *Room) processGameAction(req *Request) *Outcome {
 		return &Outcome{ErrCode: CodeStaleRevision, Message: "expected_revision does not match", Snapshot: r.buildView(playerID)}
 	}
 
+	// A fresh in-round action clears the previous round's result banner (it was
+	// shown on the first state of the new round).
+	r.roundResult = nil
+
 	// Propose: bump revision, run engine, roll back on error.
 	r.revision++
 	r.game.RoomRevision = r.revision
@@ -817,7 +837,26 @@ func (r *Room) processGameAction(req *Request) *Outcome {
 		code, msg := gameCode(err)
 		return &Outcome{ErrCode: code, Message: msg, Snapshot: r.buildView(playerID)}
 	}
-	_ = res
+
+	// SCORE-mode round-end: award points and either finish the match or start the
+	// next round immediately (rule.md R28).
+	if r.isScoreMode() && res.Ended {
+		winner := res.WinnerID
+		r.scores[winner] += res.RoundPoints
+		r.roundResult = &game.RoundResult{
+			RoundNumber:    r.roundNum,
+			WinnerPlayerID: winner,
+			Points:         res.RoundPoints,
+			Scores:         copyScore(r.scores),
+		}
+		if r.scores[winner] >= r.targetScore {
+			r.matchOver = true
+			r.matchWinner = winner
+		} else {
+			r.startNextRound()
+		}
+	}
+
 	commit := &Commit{
 		Revision:  r.revision,
 		Requester: r.buildView(playerID),
@@ -884,10 +923,14 @@ func (r *Room) snapshotForAny(req *Request) *game.GameView {
 }
 
 func (r *Room) buildView(playerID string) *game.GameView {
+	var v *game.GameView
 	if r.game == nil {
-		return r.lobbyView(playerID)
+		v = r.lobbyView(playerID)
+	} else {
+		v = r.game.BuildViewFor(playerID)
 	}
-	return r.game.BuildViewFor(playerID)
+	r.decorateView(v)
+	return v
 }
 
 func (r *Room) buildViews() map[string]*game.GameView {
@@ -899,9 +942,78 @@ func (r *Room) buildViews() map[string]*game.GameView {
 		return views
 	}
 	for _, p := range r.game.Players {
-		views[p.ID] = r.game.BuildViewFor(p.ID)
+		views[p.ID] = r.buildView(p.ID)
 	}
 	return views
+}
+
+// decorateView overlays the SCORE-mode match bookkeeping onto a view (rule.md
+// R28). In single-round mode it is a no-op.
+func (r *Room) decorateView(v *game.GameView) {
+	if v == nil || r.config.Game.WinMode != game.WinScore {
+		return
+	}
+	v.WinMode = game.WinScore
+	v.RoundNumber = r.roundNum
+	v.TargetScore = r.targetScore
+	v.Scores = copyScore(r.scores)
+	v.MatchOver = r.matchOver
+	v.MatchWinnerPlayerID = r.matchWinner
+	v.RoundResult = r.roundResult
+}
+
+// isScoreMode reports whether the room is running a SCORE-mode match.
+func (r *Room) isScoreMode() bool {
+	return r.config.Game.WinMode == game.WinScore
+}
+
+// beginScorebook initializes the SCORE-mode match book when a match starts.
+func (r *Room) beginScorebook() {
+	if r.config.Game.WinMode != game.WinScore {
+		return
+	}
+	r.scores = map[string]int{}
+	for _, pid := range r.order {
+		r.scores[pid] = 0
+	}
+	r.roundNum = 1
+	r.targetScore = r.config.Game.TargetScore
+	r.matchWinner = ""
+	r.matchOver = false
+	r.roundResult = nil
+}
+
+// startNextRound deals a fresh round and advances the round counter, carrying
+// the accumulated scores forward (rule.md R28). It must only be called when a
+// SCORE-mode round has just ended and the match is not yet over.
+func (r *Room) startNextRound() {
+	names := make([]string, 0, len(r.order))
+	ids := make([]string, 0, len(r.order))
+	for _, pid := range r.order {
+		names = append(names, r.players[pid].Name)
+		ids = append(ids, pid)
+	}
+	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
+	if err != nil {
+		// Same config already validated at match start; this cannot normally fail.
+		r.matchOver = true
+		r.matchWinner = ""
+		return
+	}
+	r.roundNum++
+	r.game = g
+	r.game.RoomRevision = r.revision
+}
+
+func copyScore(m map[string]int) map[string]int {
+	if m == nil {
+		return map[string]int{}
+	}
+	out := make(map[string]int, len(m))
+	for k, v := range m {
+		out[k] = v
+	}
+	return out
 }
 
 func (r *Room) allPlayerIDs() []string {

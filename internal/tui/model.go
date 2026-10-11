@@ -55,6 +55,15 @@ type Model struct {
 	// ownership (your turn / your +4 decision). It is cleared whenever the ball
 	// is no longer in your court, so the bell rings exactly once per transition.
 	rung bool
+
+	// knownPlayers is the set of player IDs present in the last snapshot. It lets
+	// the banner/audio layer detect when someone new joins the lobby so the
+	// terminal bell can chime once per arrival.
+	knownPlayers map[string]bool
+
+	// handSel is the cursor index into YourHand, used to select and play cards
+	// when the hand is too large for the single-digit (1-9/0) shortcuts.
+	handSel int
 }
 
 // CardPick is a wild card that needs a color selection.
@@ -73,7 +82,7 @@ type ownCard struct {
 
 // NewModel builds a fresh lobby TUI, loading any local match history.
 func NewModel(name string) Model {
-	return Model{Name: name, help: false, history: loadHistory(), histSel: -1}
+	return Model{Name: name, help: false, history: loadHistory(), histSel: -1, knownPlayers: map[string]bool{}}
 }
 
 // Init satisfies tea.Model; no startup command.

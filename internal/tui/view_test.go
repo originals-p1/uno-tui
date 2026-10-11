@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -829,5 +830,205 @@ func TestBell_OnTurnOnce(t *testing.T) {
 	v4.Phase = string(game.PhaseLobby)
 	if cmd := (&m4).bellOnTurn(v4); cmd != nil {
 		t.Fatal("no bell in the lobby")
+	}
+}
+
+// TestBell_OnPlayerJoin verifies the terminal bell rings exactly once when a
+// new player joins the lobby, never on the initial snapshot, and never while
+// the game has already started.
+func TestBell_OnPlayerJoin(t *testing.T) {
+	vLobby := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseLobby)
+	})
+
+	// No players present yet: seeds the known set, no bell.
+	m := newModel("p0")
+	vLobby.Players = nil
+	if cmd := (&m).bellOnJoin(vLobby); cmd != nil {
+		t.Fatal("first snapshot must not bell")
+	}
+
+	// Bob joins the lobby: bell once.
+	vLobby.Players = []game.PlayerView{
+		{ID: "p0", Name: "Alice"},
+		{ID: "p1", Name: "Bob"},
+	}
+	if cmd := (&m).bellOnJoin(vLobby); cmd == nil {
+		t.Fatal("expected bell when a player joins the lobby")
+	}
+	// No further change: no repeat.
+	if cmd := (&m).bellOnJoin(vLobby); cmd != nil {
+		t.Fatal("bell must not repeat without a new arrival")
+	}
+
+	// Carol joins: chimes again.
+	vLobby.Players = []game.PlayerView{
+		{ID: "p0", Name: "Alice"},
+		{ID: "p1", Name: "Bob"},
+		{ID: "p2", Name: "Carol"},
+	}
+	if cmd := (&m).bellOnJoin(vLobby); cmd == nil {
+		t.Fatal("expected bell for each additional joiner")
+	}
+
+	// Game already started (players appear together): no join bell.
+	m2 := newModel("p0")
+	vTurn := testSnap() // PhaseTurn, both players already present
+	if cmd := (&m2).bellOnJoin(vTurn); cmd != nil {
+		t.Fatal("no bell for a game already in progress")
+	}
+}
+
+func TestView_ScoreMode_RoundLineAndBanner(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap()
+	v.Phase = string(game.PhaseTurn)
+	v.WinMode = game.WinScore
+	v.RoundNumber = 2
+	v.TargetScore = 500
+	v.Scores = map[string]int{"p0": 4, "p1": 0}
+	v.RoundResult = &game.RoundResult{RoundNumber: 1, WinnerPlayerID: "p0", Points: 4, Scores: map[string]int{"p0": 4, "p1": 0}}
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "积分赛 第 2 局") {
+		t.Fatalf("missing score-match line: %q", out)
+	}
+	if !strings.Contains(out, "先到 500 分获胜") {
+		t.Fatalf("missing target in score line: %q", out)
+	}
+	if !strings.Contains(out, "第 1 回合结束：Alice 获得 4 分") {
+		t.Fatalf("missing round-result banner: %q", out)
+	}
+}
+
+func TestView_ScoreMode_MatchOverShowsChampion(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap()
+	v.Phase = string(game.PhaseFinished)
+	v.WinMode = game.WinScore
+	v.MatchOver = true
+	v.TargetScore = 10
+	v.RoundNumber = 3
+	v.MatchWinnerPlayerID = "p0"
+	v.Scores = map[string]int{"p0": 12, "p1": 3}
+	v.WinnerPlayerID = "p0"
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "积分赛结束") || !strings.Contains(out, "率先达到 10 分夺冠") {
+		t.Fatalf("missing match-over champion line: %q", out)
+	}
+	if !strings.Contains(out, "最终积分") {
+		t.Fatalf("missing final scorebook: %q", out)
+	}
+	if !strings.Contains(out, "Alice  12 分") {
+		t.Fatalf("missing champion score: %q", out)
+	}
+}
+
+func TestView_LargeHand_CursorPlaysBeyondNinth(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap()
+	hand := make([]game.CardView, 12)
+	for i := range hand {
+		hand[i] = game.CardView{ID: fmt.Sprintf("c%d", i), Color: game.ColorRed, Rank: game.RankTwo}
+	}
+	v.YourHand = hand
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+
+	// Cursor starts at 0; two "down" presses select index 2 (>9 unreachable by
+	// the single-digit shortcuts is index 10+; here we verify index 2 works too).
+	m2, _ := runKey(t, m, "down")
+	if m2.handSel != 1 {
+		t.Fatalf("handSel after one down = %d, want 1", m2.handSel)
+	}
+	m3, _ := runKey(t, m2, "down")
+	if m3.handSel != 2 {
+		t.Fatalf("handSel after two downs = %d, want 2", m3.handSel)
+	}
+	// Enter plays the card at the cursor (c2).
+	_, action := runKey(t, m3, "enter")
+	if want := "play_card:c2:"; action != want {
+		t.Fatalf("enter action = %q, want %q", action, want)
+	}
+}
+
+func TestView_LargeHand_MovesToIndexTenAndWraps(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap()
+	hand := make([]game.CardView, 12)
+	for i := range hand {
+		hand[i] = game.CardView{ID: fmt.Sprintf("c%d", i), Color: game.ColorRed, Rank: game.RankTwo}
+	}
+	v.YourHand = hand
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+
+	// Move down 10 times -> reache index 10 (the first card beyond 1-9/0 range).
+	for i := 0; i < 10; i++ {
+		m, _ = runKey(t, m, "down")
+	}
+	if m.handSel != 10 {
+		t.Fatalf("handSel = %d, want 10", m.handSel)
+	}
+	_, action := runKey(t, m, "enter")
+	if want := "play_card:c10:"; action != want {
+		t.Fatalf("play index 10 action = %q, want %q", action, want)
+	}
+	// Move down again wraps to 11.
+	m, _ = runKey(t, m, "down")
+	if m.handSel != 11 {
+		t.Fatalf("handSel = %d, want 11 (after wrap past end)", m.handSel)
+	}
+	// And once more wraps back to 0.
+	m, _ = runKey(t, m, "down")
+	if m.handSel != 0 {
+		t.Fatalf("handSel = %d, want 0 (wrapped)", m.handSel)
+	}
+}
+
+func TestRender_TurnOrderDirection(t *testing.T) {
+	mk := func(dir int, current string) (Model, *game.GameView) {
+		m := newModel("p0")
+		v := testSnap()
+		v.Players = []game.PlayerView{
+			{ID: "p0", Name: "Alice"},
+			{ID: "p1", Name: "Bob"},
+			{ID: "p2", Name: "Carol"},
+		}
+		v.Direction = dir
+		v.CurrentPlayer = current
+		nm, _ := m.Update(SnapshotMsg{View: v})
+		return nm.(Model), v
+	}
+
+	// Clockwise from Alice: Alice ↓ Bob ↓ Carol ↓ Alice (next seat is below).
+	m, _ := mk(1, "p0")
+	if !strings.Contains(m.renderTurnOrder(RenderOpts{Unicode: true}), "▶Alice ↓ Bob ↓ Carol ↓ ▶回到起点") {
+		t.Fatalf("clockwise order wrong: %q", m.renderTurnOrder(RenderOpts{Unicode: true}))
+	}
+	if !strings.Contains(m.renderTurnOrder(RenderOpts{Unicode: true}), "顺时针") {
+		t.Fatalf("clockwise label missing")
+	}
+
+	// Counter-clockwise from Bob: Bob ↑ Alice ↑ Carol ↑ Bob (next seat is above).
+	m, _ = mk(-1, "p1")
+	got := m.renderTurnOrder(RenderOpts{Unicode: true})
+	if !strings.Contains(got, "▶Bob ↑ Alice ↑ Carol ↑ ▶回到起点") {
+		t.Fatalf("counterclockwise order wrong: %q", got)
+	}
+	if !strings.Contains(got, "逆时针") {
+		t.Fatalf("counterclockwise label missing")
+	}
+
+	// Non-unicode downgrade must not leak unicode arrows.
+	m2, _ := mk(1, "p0")
+	plain := m2.renderTurnOrder(RenderOpts{Unicode: false})
+	for _, bad := range []string{"↓", "↑", "▶"} {
+		if strings.Contains(plain, bad) {
+			t.Fatalf("unicode leaked %q in downgrade: %q", bad, plain)
+		}
 	}
 }

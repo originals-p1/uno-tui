@@ -16,7 +16,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case SnapshotMsg:
 		m.applySnapshot(v.View)
 		m.recordFinished()
-		return m, m.bellOnTurn(v.View)
+		return m, tea.Batch(m.bellOnTurn(v.View), m.bellOnJoin(v.View))
 	case HelpMsg:
 		m.help = !m.help
 		return m, nil
@@ -46,6 +46,10 @@ func (m *Model) applySnapshot(v *game.GameView) {
 		return
 	}
 	m.Snap = v
+	// Keep the hand cursor within the (possibly shrunk/grown) hand.
+	if m.handSel >= len(v.YourHand) {
+		m.handSel = 0
+	}
 	// A new personal turn begins once we are current and no color pick needed.
 	if v.CurrentPlayer == m.MyID {
 		// (color pick persists until resolved by the player)
@@ -82,6 +86,36 @@ func bellCmd() tea.Cmd {
 		_, _ = os.Stderr.Write([]byte("\a"))
 		return nil
 	}
+}
+
+// bellOnJoin rings the terminal bell (BEL, \a) exactly once when a new player
+// appears in the lobby, so a host hears an arrival without staring at the
+// screen. The first snapshot just seeds the known-player set; subsequent joins
+// chime once each. It only fires while the game is still in the lobby.
+func (m *Model) bellOnJoin(v *game.GameView) tea.Cmd {
+	if v == nil {
+		return nil
+	}
+	present := make(map[string]bool, len(v.Players))
+	for _, p := range v.Players {
+		present[p.ID] = true
+	}
+	if m.knownPlayers == nil {
+		m.knownPlayers = present
+		return nil
+	}
+	newArrival := false
+	for id := range present {
+		if !m.knownPlayers[id] {
+			newArrival = true
+			break
+		}
+	}
+	m.knownPlayers = present
+	if !newArrival || v.Phase != string(game.PhaseLobby) {
+		return nil
+	}
+	return bellCmd()
 }
 
 // recordFinished persists the outcome of a completed game exactly once, keyed
@@ -203,6 +237,15 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		if k == "d" || k == " " {
 			return m, actCmd(ActDraw)
 		}
+		// Hand-cursor navigation for large hands (>10 cards).
+		switch k {
+		case "up", "k":
+			nm := m; nm.moveHandSel(-1); return nm, nil
+		case "down", "j":
+			nm := m; nm.moveHandSel(1); return nm, nil
+		case "enter":
+			return m.playHandAt(m.handSel)
+		}
 		return m.onTurnNumber(k)
 	case ModeFinished:
 		// b / back: return the finished room to a fresh lobby for another round.
@@ -215,10 +258,17 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 
 func (m Model) onTurnNumber(k string) (tea.Model, tea.Cmd) {
 	idx, ok := digitIndex(k)
-	if !ok || m.Snap == nil || idx >= len(m.Snap.YourHand) {
+	if !ok {
 		return m, nil
 	}
-	if m.mode() != ModeTurn {
+	return m.playHandAt(idx)
+}
+
+// playHandAt starts playing the hand card at index idx (0-based) if it is
+// within range and it is the player's turn. Wild cards enter the color-picker
+// instead of being played directly.
+func (m Model) playHandAt(idx int) (tea.Model, tea.Cmd) {
+	if !m.isMyTurn() || m.Snap == nil || idx < 0 || idx >= len(m.Snap.YourHand) {
 		return m, nil
 	}
 	card := m.Snap.YourHand[idx]
@@ -228,6 +278,17 @@ func (m Model) onTurnNumber(k string) (tea.Model, tea.Cmd) {
 		return m, nil
 	}
 	return m, actCmdCol(ActPlayCard, card.ID, "")
+}
+
+// moveHandSel moves the hand-cursor by delta (wrapping). It is only meaningful
+// for large hands; for 10 or fewer cards the single-digit shortcuts already
+// cover every card, so the cursor is left alone.
+func (m *Model) moveHandSel(delta int) {
+	if m.Snap == nil || len(m.Snap.YourHand) <= 10 {
+		return
+	}
+	n := len(m.Snap.YourHand)
+	m.handSel = ((m.handSel+delta)%n + n) % n
 }
 
 func (m Model) onConfigEditKey(k string) (tea.Model, tea.Cmd) {
