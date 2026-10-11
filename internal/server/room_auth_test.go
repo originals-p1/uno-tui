@@ -216,3 +216,84 @@ func TestPause_MultipleTimersAndTimeout(t *testing.T) {
 		t.Fatalf("phase=%s reason=%s, want finished/PLAYER_RECONNECT_TIMEOUT", r.game.Phase, r.game.EndReason)
 	}
 }
+
+// TestLobby_DisconnectedGuestAutoEjected verifies that a guest who disconnects
+// in the lobby is auto-removed once the reconnect grace expires, so the game
+// is no longer blocked from starting (readme: avoid "unable to start").
+func TestLobby_DisconnectedGuestAutoEjected(t *testing.T) {
+	r, clock := lobbyRoom(t, nil)
+	host := r.Submit(hello("Host", "topsecret", "", "bootstrap-token"))
+	if !host.IsHost {
+		t.Fatalf("host join failed: %+v", host)
+	}
+	guest := joinSeat(r, "Guest")
+	other := joinSeat(r, "Other")
+	r.Submit(&Request{Kind: KindReady, SessionID: other.sessID, RequestID: "rO", Ready: &Ready{Value: true}})
+
+	// Guest goes offline in the lobby.
+	r.Submit(&Request{Kind: KindDisconnect, SessionID: guest.sessID, Disconnect: &Disconnect{PlayerID: guest.playerID}})
+	if _, ok := r.players[guest.playerID]; !ok {
+		t.Fatalf("guest should still be seated before the grace expires")
+	}
+
+	// Game cannot start while the disconnected guest is still seated.
+	if out := r.Submit(&Request{Kind: KindStartGame, SessionID: host.SessionID, RequestID: "s0"}); out.OK() {
+		t.Fatalf("start should be blocked while a guest is offline, got %+v", out)
+	}
+
+	// Once the grace expires, the guest is ejected automatically.
+	clock.Advance(61 * time.Second)
+	r.Submit(&Request{Kind: KindStatus, SessionID: "sync"})
+	if _, ok := r.players[guest.playerID]; ok {
+		t.Fatalf("guest should be ejected after the grace period")
+	}
+	if containsStr(r.order, guest.playerID) {
+		t.Fatalf("guest should be removed from the seat order")
+	}
+
+	// Remaining host + Other are both ready: the game can now start.
+	if out := r.Submit(&Request{Kind: KindStartGame, SessionID: host.SessionID, RequestID: "s1"}); !out.OK() {
+		t.Fatalf("start should succeed after ejecting the offline guest, got %+v", out)
+	}
+}
+
+// TestLobby_ReconnectWithinGraceCancelsEject verifies a guest who comes back
+// before the grace expires is NOT ejected.
+func TestLobby_ReconnectWithinGraceCancelsEject(t *testing.T) {
+	r, clock := lobbyRoom(t, nil)
+	guest := joinSeat(r, "Guest")
+	pid := guest.playerID
+
+	r.Submit(&Request{Kind: KindDisconnect, SessionID: guest.sessID, Disconnect: &Disconnect{PlayerID: pid}})
+	if _, ok := r.players[pid]; !ok {
+		t.Fatalf("guest should still be seated before grace")
+	}
+	// Reconnect within grace.
+	clock.Advance(10 * time.Second)
+	if rec := r.Submit(hello("Guest", "topsecret", guest.rtoken, "")); rec.ErrCode != "" {
+		t.Fatalf("reconnect within grace failed: %+v", rec)
+	}
+	if _, ok := r.players[pid]; !ok {
+		t.Fatalf("guest should not be ejected after reconnecting within grace")
+	}
+}
+
+// TestLobby_HostNeverAutoEjected verifies the host is never removed by the
+// grace timeout (the host controls the room).
+func TestLobby_HostNeverAutoEjected(t *testing.T) {
+	r, clock := lobbyRoom(t, nil)
+	host := r.Submit(hello("Host", "topsecret", "", "bootstrap-token"))
+	if !host.IsHost {
+		t.Fatalf("host join failed: %+v", host)
+	}
+	// Host "disconnects" in lobby.
+	r.Submit(&Request{Kind: KindDisconnect, SessionID: host.SessionID, Disconnect: &Disconnect{PlayerID: host.PlayerID}})
+	if _, ok := r.players[host.PlayerID]; !ok {
+		t.Fatalf("host should remain seated")
+	}
+	clock.Advance(120 * time.Second)
+	r.Submit(&Request{Kind: KindStatus, SessionID: "sync"})
+	if _, ok := r.players[host.PlayerID]; !ok {
+		t.Fatalf("host must never be auto-ejected")
+	}
+}

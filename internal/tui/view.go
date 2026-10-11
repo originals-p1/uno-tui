@@ -294,15 +294,15 @@ func (m Model) renderTurnOrder(o RenderOpts) string {
 	}
 	arrow := dirArrow(s.Direction, o)
 	cur := "▶"
-	dirWord := "顺时针（在下方）"
+	dirWord := "顺时针"
 	if s.Direction < 0 {
-		dirWord = "逆时针（在上方）"
+		dirWord = "逆时针"
 	}
 	if !o.Unicode {
 		cur = ">"
-		dirWord = "顺时针(下方)"
+		dirWord = "顺时针"
 		if s.Direction < 0 {
-			dirWord = "逆时针(上方)"
+			dirWord = "逆时针"
 		}
 	}
 	n := len(s.Players)
@@ -330,21 +330,21 @@ func (m Model) renderTurnOrder(o RenderOpts) string {
 	return "\n" + line + "\n"
 }
 
-// dirArrow returns the play-direction arrow for the current direction. Because
-// the player roster is drawn top-to-bottom in seat order, a clockwise (direction
-// +1) pass goes to the next seat below (↓ / v) and counter-clockwise goes up
-// (↑ / ^).
+// dirArrow returns the play-direction arrow for the current direction.
+// Horizontal arrows (→ / ←) are used so they do not get confused with the
+// up/down card-selection cursor keys: clockwise (direction +1) is a rightward
+// pass, counter-clockwise is leftward.
 func dirArrow(direction int, o RenderOpts) string {
 	if direction < 0 {
 		if o.Unicode {
-			return "↑"
+			return "←"
 		}
-		return "^"
+		return "<"
 	}
 	if o.Unicode {
-		return "↓"
+		return "→"
 	}
-	return "v"
+	return ">"
 }
 
 // scoreBanner renders the transient "round finished" banner shown at the very

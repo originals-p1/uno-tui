@@ -76,7 +76,7 @@ func DefaultConfig() Config {
 		PingInterval:   10 * time.Second,
 		IdleTimeout:    30 * time.Second,
 		HelloTimeout:   10 * time.Second,
-		ReconnectGrace: 60 * time.Second,
+		ReconnectGrace: 5 * time.Second,
 		WriteQueueSize: 64,
 	}
 }
@@ -373,13 +373,17 @@ func (r *Room) expireDeadlines() {
 		if !d.After(now) {
 			deadline = true
 			delete(r.disconnected, id)
-			if m, ok := r.players[id]; ok {
-				m.Connected = false
-			}
-			if r.game != nil {
+			if r.game != nil && r.started {
+				if m, ok := r.players[id]; ok {
+					m.Connected = false
+				}
 				if pi := r.game.PlayerIndex(id); pi >= 0 {
 					r.game.SetConnected(id, false)
 				}
+			} else {
+				// Lobby: the reconnect grace expired without the player coming
+				// back. Auto-eject the stale seat so the game can always start.
+				r.ejectPlayer(id)
 			}
 		}
 	}
@@ -389,6 +393,27 @@ func (r *Room) expireDeadlines() {
 		r.revision++
 		r.game.RoomRevision = r.revision
 	}
+}
+
+// ejectPlayer removes a guest seat from the room entirely. It is only safe in
+// the lobby (before a game has started); an in-progress game must not lose its
+// ordered roster (rule.md R37). The host is never ejected.
+func (r *Room) ejectPlayer(playerID string) {
+	if r.started {
+		return
+	}
+	if p, ok := r.players[playerID]; ok && p.IsHost {
+		return
+	}
+	delete(r.players, playerID)
+	r.order = removeStr(r.order, playerID)
+	if sid, ok := r.playerSessions[playerID]; ok {
+		delete(r.sessions, sid)
+	}
+	delete(r.playerSessions, playerID)
+	delete(r.caches, playerID)
+	delete(r.reconnect, playerID)
+	delete(r.disconnected, playerID)
 }
 
 // process runs entirely on the owner goroutine.
@@ -739,11 +764,7 @@ func (r *Room) processDisconnect(req *Request) *Outcome {
 		return &Outcome{ErrCode: CodeInvalidSession, Message: "unknown player"}
 	}
 	m.Connected = false
-	hostProcessEnd := false
 	if m.IsHost {
-		hostProcessEnd = true
-	}
-	if hostProcessEnd {
 		// Host process exit ends the game (v1).
 		if r.game != nil {
 			r.game.Phase = game.PhaseFinished
@@ -764,7 +785,14 @@ func (r *Room) processDisconnect(req *Request) *Outcome {
 			r.game.SetPaused(collectIDs(r.disconnected), deadline.Format(time.RFC3339))
 		}
 		r.revision++
+		return &Outcome{Commit: &Commit{Revision: r.revision}}
 	}
+	// Lobby disconnect: schedule an auto-eject so a lingering guest can never
+	// block the game from starting. Reconnect within the grace period cancels it.
+	if _, ok := r.disconnected[playerID]; !ok {
+		r.disconnected[playerID] = r.clock.Now().Add(r.cfg.ReconnectGrace)
+	}
+	r.revision++
 	return &Outcome{Commit: &Commit{Revision: r.revision}}
 }
 
@@ -782,7 +810,8 @@ func (r *Room) minorLeave(playerID string) *Outcome {
 		r.revision++
 		return &Outcome{Commit: &Commit{Revision: r.revision}}
 	}
-	// Count as a disconnect with pause.
+	// Count as a disconnect: pause an in-progress game, or schedule an
+	// auto-eject from the lobby so a stale guest can't block game start.
 	if r.game != nil && r.started {
 		if pi := r.game.PlayerIndex(playerID); pi >= 0 {
 			r.game.SetConnected(playerID, false)
@@ -793,6 +822,8 @@ func (r *Room) minorLeave(playerID string) *Outcome {
 			r.prevPhase = r.game.Phase
 			r.game.SetPaused(collectIDs(r.disconnected), deadline.Format(time.RFC3339))
 		}
+	} else if _, ok := r.disconnected[playerID]; !ok {
+		r.disconnected[playerID] = r.clock.Now().Add(r.cfg.ReconnectGrace)
 	}
 	r.revision++
 	view := r.lobbyView(playerID)
@@ -1071,6 +1102,16 @@ func containsStr(list []string, s string) bool {
 		}
 	}
 	return false
+}
+
+func removeStr(list []string, s string) []string {
+	out := list[:0]
+	for _, x := range list {
+		if x != s {
+			out = append(out, x)
+		}
+	}
+	return out
 }
 
 func collectIDs(m map[string]time.Time) []string {

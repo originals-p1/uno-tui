@@ -1004,19 +1004,19 @@ func TestRender_TurnOrderDirection(t *testing.T) {
 		return nm.(Model), v
 	}
 
-	// Clockwise from Alice: Alice ↓ Bob ↓ Carol ↓ Alice (next seat is below).
+	// Clockwise from Alice: Alice → Bob → Carol → Alice (rightward pass).
 	m, _ := mk(1, "p0")
-	if !strings.Contains(m.renderTurnOrder(RenderOpts{Unicode: true}), "▶Alice ↓ Bob ↓ Carol ↓ ▶回到起点") {
+	if !strings.Contains(m.renderTurnOrder(RenderOpts{Unicode: true}), "▶Alice → Bob → Carol → ▶回到起点") {
 		t.Fatalf("clockwise order wrong: %q", m.renderTurnOrder(RenderOpts{Unicode: true}))
 	}
 	if !strings.Contains(m.renderTurnOrder(RenderOpts{Unicode: true}), "顺时针") {
 		t.Fatalf("clockwise label missing")
 	}
 
-	// Counter-clockwise from Bob: Bob ↑ Alice ↑ Carol ↑ Bob (next seat is above).
+	// Counter-clockwise from Bob: Bob ← Alice ← Carol ← Bob (leftward pass).
 	m, _ = mk(-1, "p1")
 	got := m.renderTurnOrder(RenderOpts{Unicode: true})
-	if !strings.Contains(got, "▶Bob ↑ Alice ↑ Carol ↑ ▶回到起点") {
+	if !strings.Contains(got, "▶Bob ← Alice ← Carol ← ▶回到起点") {
 		t.Fatalf("counterclockwise order wrong: %q", got)
 	}
 	if !strings.Contains(got, "逆时针") {
@@ -1026,7 +1026,7 @@ func TestRender_TurnOrderDirection(t *testing.T) {
 	// Non-unicode downgrade must not leak unicode arrows.
 	m2, _ := mk(1, "p0")
 	plain := m2.renderTurnOrder(RenderOpts{Unicode: false})
-	for _, bad := range []string{"↓", "↑", "▶"} {
+	for _, bad := range []string{"↓", "↑", "→", "←", "▶"} {
 		if strings.Contains(plain, bad) {
 			t.Fatalf("unicode leaked %q in downgrade: %q", bad, plain)
 		}

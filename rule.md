@@ -42,7 +42,7 @@ Host 迁移、规则预设页。
 | 议题 | 决议 |
 |---|---|
 | A1 聊天消息（R31） | **v2 移除**“发送聊天消息”。聊天为未来迭代，需另行定义协议与 TUI，本文件不承诺。 |
-| A2/A3 断线默认（R36） | v2 默认 **PAUSE**（暂停并等待重连）。`disconnect_timeout_seconds` 默认 **60**。AUTO_PLAY / FORFEIT 为 P2，不在 v2。readme 的 60s 与之对齐。 |
+| A2/A3 断线默认（R36） | v2 默认 **PAUSE**（暂停并等待重连）。`disconnect_timeout_seconds` 默认 **5**。AUTO_PLAY / FORFEIT 为 P2，不在 v2。readme 的 5s 与之对齐。 |
 | A4 Host 退出（R39） | v2 默认 **CLOSE_ROOM**：房主进程退出即结束房间。与“权威引擎所在进程=房主进程”的单进程模型一致。MIGRATE 为 P2，需另立状态迁移规格。 |
 | A5 人数（R01） | v2 支持 **2–4** 人；`max_players` 校验范围 2–4。5–10 延后。 |
 | A6 首牌 +4 重翻（R05） | 放回并按 R05 重洗重翻；**重翻循环上限 10 次**，超限则强制取一张数字牌为顶牌，避免病态循环。 |
@@ -899,7 +899,7 @@ Host 可以随时取消其他玩家的准备状态，以要求重新确认新规
 
 配置：`disconnect_timeout_seconds`
 
-默认：60（v2 决议 0.3-A2/A3；与 readme 对齐）。
+默认：5（v2 决议 0.3-A2/A3；与 readme 对齐）。
 
 v2 默认策略：**PAUSE** —— 任一玩家断线即暂停本局，保留座位与手牌，等待重连；宽限期
 `disconnect_timeout_seconds` 内恢复则回到精确暂停点。宽限期结束仍未恢复则：

@@ -693,3 +693,78 @@ func TestChallenge_TriggersColorAndResultBanner(t *testing.T) {
 		t.Fatalf("result banner should be cleared by the next action")
 	}
 }
+
+// TestAutoUNO_ClearedOnDrawEffect verifies that a player who had the UNO flag
+// set at one card but then receives drawn cards (e.g. a +2) no longer shows
+// the UNO mark (rule.md: the flag only applies while holding exactly one card).
+func TestAutoUNO_ClearedOnDrawEffect(t *testing.T) {
+	// p0 (index 0) has one card and the UNO flag; p1 (index 1, on turn)
+	// plays a red +2, making p0 draw 2 cards -> flag must clear.
+	g := mkGame(
+		[][]Card{
+			{tcard("own", ColorRed, RankOne)},
+			{tcard("d2", ColorRed, RankDrawTwo), tcard("x", ColorBlue, RankTwo)},
+		},
+		nil, tcard("top", ColorRed, RankTwo), ColorRed, 1, 1, PhaseTurn,
+	)
+	g.Players[0].HasUNO = true
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "d2"}); err != nil {
+		t.Fatalf("play +2: %v", err)
+	}
+	if g.Players[0].HasUNO {
+		t.Fatal("UNO flag should be cleared after p0 drew 2 cards (no longer one card)")
+	}
+}
+
+// TestAutoUNO_ClearedOnUnplayableDraw verifies that a player holding the flag
+// who draws an unplayable card on their turn (going to 2 cards) loses it.
+func TestAutoUNO_ClearedOnUnplayableDraw(t *testing.T) {
+	// p0 has one card (not currently playable) and the flag; drawing an
+	// unplayable card takes them to 2 cards -> flag clears, no drawn_decision.
+	g := mkGame(
+		[][]Card{
+			{tcard("own", ColorGreen, RankOne)},
+			{tcard("x", ColorBlue, RankTwo)},
+		},
+		[]Card{tcard("b7", ColorBlue, RankSeven)}, // not playable on red top
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Players[0].HasUNO = true
+	if _, err := g.Apply("p0", Action{Type: ActionDrawCard}); err != nil {
+		t.Fatalf("draw: %v", err)
+	}
+	if g.Phase != PhaseTurn {
+		t.Fatalf("phase = %s, want turn", g.Phase)
+	}
+	if g.Players[0].HasUNO {
+		t.Fatal("UNO flag should be cleared after drawing an unplayable card (2 cards)")
+	}
+}
+
+// TestAutoUNO_ClearedOnAcceptedFour verifies a +4 target accepting (drawing 4)
+// clears a previously-set UNO flag.
+func TestAutoUNO_ClearedOnAcceptedFour(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("own", ColorBlue, RankOne)},
+			{tcard("d4", ColorWild, RankWildDrawFour)},
+		},
+		[]Card{tcard("c1", ColorRed, RankOne), tcard("c2", ColorRed, RankTwo),
+			tcard("c3", ColorRed, RankThree), tcard("c4", ColorRed, RankFour)},
+		tcard("top", ColorRed, RankTwo), ColorRed, 1, 1, PhaseTurn,
+	)
+	g.Players[0].HasUNO = true
+	red := ColorRed
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "d4", ChosenColor: &red}); err != nil {
+		t.Fatalf("play +4: %v", err)
+	}
+	if g.Phase != PhaseChallenge {
+		t.Fatalf("phase = %s, want challenge", g.Phase)
+	}
+	if _, err := g.Apply("p0", Action{Type: ActionAcceptFour}); err != nil {
+		t.Fatalf("accept four: %v", err)
+	}
+	if g.Players[0].HasUNO {
+		t.Fatal("UNO flag should be cleared after accepting +4 (p0 drew 4 cards)")
+	}
+}

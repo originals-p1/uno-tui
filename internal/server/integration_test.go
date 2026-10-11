@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -242,5 +243,76 @@ func TestIntegration_ReconnectResumesSamePlayer(t *testing.T) {
 	}
 	if bob2.Identity().PlayerID != pid {
 		t.Fatalf("reconnected to seat %q, want %q", bob2.Identity().PlayerID, pid)
+	}
+}
+
+// TestHandCountListMatchesActual samples each client's personalized snapshot
+// repeatedly throughout a real game and checks that the hand count shown in
+// the player list for the client themself always equals the length of their
+// own hand (YourHand). Any mismatch is reported as a test failure.
+func TestHandCountListMatchesActual(t *testing.T) {
+	s, addr := startRealServer(t)
+	_ = s
+	host, guest := startGame(t, addr)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	check := func(c *client.Client, who string, errs chan<- string) {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			default:
+			}
+			snap := c.Snapshot()
+			if snap == nil || len(snap.YourHand) == 0 {
+				time.Sleep(10 * time.Millisecond)
+				continue
+			}
+			if snap.Phase == string(game.PhaseFinished) {
+				return
+			}
+			var listCount int
+			found := false
+			for _, p := range snap.Players {
+				if p.ID == c.Identity().PlayerID {
+					listCount = p.CardCount
+					found = true
+					break
+				}
+			}
+			if found && listCount != len(snap.YourHand) {
+				errs <- fmt.Sprintf("[%s] phase=%s list card_count=%d but actual hand=%d",
+					who, snap.Phase, listCount, len(snap.YourHand))
+				return
+			}
+			time.Sleep(5 * time.Millisecond)
+		}
+	}
+
+	errs := make(chan string, 16)
+	go check(host, "host", errs)
+	go check(guest, "guest", errs)
+
+	winnerSeen := func() bool {
+		if s := host.Snapshot(); s != nil && s.WinnerPlayerID != "" {
+			return true
+		}
+		return guest.Snapshot() != nil && guest.Snapshot().WinnerPlayerID != ""
+	}
+	done := make(chan struct{}, 2)
+	go func() { autoPlay(ctx, host, winnerSeen); done <- struct{}{} }()
+	go func() { autoPlay(ctx, guest, winnerSeen); done <- struct{}{} }()
+
+	waitUntil(t, 30*time.Second, winnerSeen, "a winner to be reached")
+	cancel()
+	<-done
+	<-done
+
+	select {
+	case e := <-errs:
+		t.Fatalf("hand count mismatch observed: %s", e)
+	default:
 	}
 }

@@ -365,6 +365,9 @@ func (g *Game) applyDrawCard(pi int, a Action) (*Result, error) {
 		res.LegalMoves = []string{g.DrawnCardID}
 		return res, nil
 	}
+	// The drawn card cannot be played: the player now holds more than one
+	// card, so a previously-set UNO flag must be cleared.
+	g.updateUNO(pi)
 	return g.passAndAdvance(pi, res)
 }
 
@@ -410,6 +413,7 @@ func (g *Game) applyAcceptFour(pi int) (*Result, error) {
 	n := len(g.Players)
 	drawn := g.drawCards(4)
 	g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+	g.updateUNO(pi)
 	res := &Result{}
 	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
 	g.CurrentIndex = wrap(pi+g.Direction, n)
@@ -467,6 +471,7 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 		ridx := g.playerIndex(g.challengeResolver)
 		drawn := g.drawCards(4)
 		g.Players[ridx].Hand = append(g.Players[ridx].Hand, drawn...)
+		g.updateUNO(ridx)
 		g.cardDrawnEvent(res, g.Players[ridx].ID, len(drawn))
 		g.CurrentIndex = pi
 		res.Events = append(res.Events, g.event(EventChallengeSucceeded, g.Players[pi].ID, nil, ""))
@@ -475,6 +480,7 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 		// Clean: challenger draws 6 and is skipped.
 		drawn := g.drawCards(6)
 		g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+		g.updateUNO(pi)
 		g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
 		g.CurrentIndex = wrap(pi+g.Direction, n)
 		res.Events = append(res.Events, g.event(EventChallengeFailed, g.Players[pi].ID, nil, ""))
@@ -541,6 +547,7 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		target := wrap(g.CurrentIndex+g.Direction, n)
 		drawn := g.drawCards(2)
 		g.Players[target].Hand = append(g.Players[target].Hand, drawn...)
+		g.updateUNO(target)
 		g.cardDrawnEvent(res, g.Players[target].ID, len(drawn))
 		g.CurrentIndex = wrap(g.CurrentIndex+2*g.Direction, n)
 		res.Events = append(res.Events, g.event(EventSkipped, playerID, nil, "", g.Players[target].ID))
@@ -557,6 +564,7 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		target := wrap(g.CurrentIndex+g.Direction, n)
 		drawn := g.drawCards(4)
 		g.Players[target].Hand = append(g.Players[target].Hand, drawn...)
+		g.updateUNO(target)
 		g.cardDrawnEvent(res, g.Players[target].ID, len(drawn))
 		g.CurrentIndex = wrap(g.CurrentIndex+2*g.Direction, n)
 		res.Events = append(res.Events, g.event(EventSkipped, playerID, nil, "", g.Players[target].ID))
