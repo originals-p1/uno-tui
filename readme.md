@@ -31,7 +31,7 @@
 
 ```
 $ ./uno
-uno 1.3.0 — Terminal UNO
+uno 1.4.0 — Terminal UNO
 
 （括号内为上次的配置，直接回车即可沿用）
 你的昵称（默认 Alice）:                            ← 回车=沿用上次
