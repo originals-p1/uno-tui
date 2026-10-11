@@ -1021,10 +1021,11 @@ func TestRender_TurnOrderDirection(t *testing.T) {
 		t.Fatalf("clockwise label missing")
 	}
 
-	// Counter-clockwise from Bob: Bob ← Alice ← Carol ← Bob (leftward pass).
+	// Counter-clockwise from Bob: Bob → Alice → Carol → Bob. The arrow is always
+	// rightward; the actual turn order (the sequence) carries the direction.
 	m, _ = mk(-1, "p1")
 	got := m.renderTurnOrder(RenderOpts{Unicode: true})
-	if !strings.Contains(got, "▶Bob ← Alice ← Carol ← ▶回到起点") {
+	if !strings.Contains(got, "▶Bob → Alice → Carol → ▶回到起点") {
 		t.Fatalf("counterclockwise order wrong: %q", got)
 	}
 	if !strings.Contains(got, "逆时针") {

@@ -351,17 +351,10 @@ func (m Model) renderTurnOrder(o RenderOpts) string {
 	return "\n" + line + "\n"
 }
 
-// dirArrow returns the play-direction arrow for the current direction.
-// Horizontal arrows (→ / ←) are used so they do not get confused with the
-// up/down card-selection cursor keys: clockwise (direction +1) is a rightward
-// pass, counter-clockwise is leftward.
+// dirArrow returns the play-direction arrow. The right arrow is always used
+// (the player order sequence already reflects the actual clockwise /
+// counter-clockwise direction), so it is never confused with leftward arrows.
 func dirArrow(direction int, o RenderOpts) string {
-	if direction < 0 {
-		if o.Unicode {
-			return "←"
-		}
-		return "<"
-	}
 	if o.Unicode {
 		return "→"
 	}
