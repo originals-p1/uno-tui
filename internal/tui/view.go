@@ -163,14 +163,18 @@ func (m Model) renderHand(o RenderOpts) string {
 		b.WriteString("  " + strings.Join(items, "  ") + "\n")
 		return b.String()
 	}
+	sel := "▶ "
+	if !o.Unicode {
+		sel = ">  "
+	}
 	for i, c := range hand {
 		num := fmt.Sprintf("%d", i+1)
 		if i == 9 {
 			num = "0"
 		}
 		cursor := "  "
-		if big && i == m.handSel {
-			cursor = "▶ "
+		if m.handSel == i {
+			cursor = sel
 		}
 		line := fmt.Sprintf("%s%s [%s] %s", cursor, cardColorIcon(c, o.Color), num, cardText(c))
 		if playable[c.ID] {

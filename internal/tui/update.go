@@ -280,11 +280,10 @@ func (m Model) playHandAt(idx int) (tea.Model, tea.Cmd) {
 	return m, actCmdCol(ActPlayCard, card.ID, "")
 }
 
-// moveHandSel moves the hand-cursor by delta (wrapping). It is only meaningful
-// for large hands; for 10 or fewer cards the single-digit shortcuts already
-// cover every card, so the cursor is left alone.
+// moveHandSel moves the hand-cursor by delta (wrapping) so the selected card
+// always has a visible ▶ marker, regardless of hand size.
 func (m *Model) moveHandSel(delta int) {
-	if m.Snap == nil || len(m.Snap.YourHand) <= 10 {
+	if m.Snap == nil || len(m.Snap.YourHand) == 0 {
 		return
 	}
 	n := len(m.Snap.YourHand)

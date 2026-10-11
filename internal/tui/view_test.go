@@ -1032,3 +1032,31 @@ func TestRender_TurnOrderDirection(t *testing.T) {
 		}
 	}
 }
+
+func TestView_HandSelectionMarker_AllHandSizes(t *testing.T) {
+	// Even a small (<=10) hand shows a visible ▶ marker and supports ↑/↓ + Enter.
+	m := newModel("p0")
+	v := testSnap() // 3-card hand
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+
+	opts := RenderOpts{Color: false, Unicode: true}
+	out := m.render(opts)
+	if !strings.Contains(out, "▶ ● [1] R2") {
+		t.Fatalf("default marker should point at card 1: %q", out)
+	}
+	// Move down to card 2 and confirm the marker follows.
+	m2, _ := runKey(t, m, "down")
+	if m2.handSel != 1 {
+		t.Fatalf("handSel = %d, want 1", m2.handSel)
+	}
+	out2 := m2.render(opts)
+	if !strings.Contains(out2, "▶ ● [2] Y9") || strings.Contains(out2, "▶ ● [1]") {
+		t.Fatalf("marker should move to card 2: %q", out2)
+	}
+	// Enter plays the selected card (index 1 = c1).
+	_, action := runKey(t, m2, "enter")
+	if want := "play_card:c1:"; action != want {
+		t.Fatalf("enter action = %q, want %q", action, want)
+	}
+}
