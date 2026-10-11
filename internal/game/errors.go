@@ -26,6 +26,7 @@ const (
 	ErrCodeActionFinishNotAllowed ErrorCode = "ACTION_FINISH_DISALLOWED"
 	ErrCodeChallengeNotAllowed    ErrorCode = "CHALLENGE_NOT_ALLOWED"
 	ErrCodeChallengeNoFour        ErrorCode = "NO_WILD_DRAW_FOUR_TO_CHALLENGE"
+	ErrCodeInternal               ErrorCode = "INTERNAL_ERROR"
 )
 
 // GameError is a stable, typed engine error carrying a machine-readable code

@@ -271,9 +271,14 @@ func (m Model) renderStack(o RenderOpts) string {
 	if m.Snap != nil && m.Snap.Stack != nil {
 		credits = m.Snap.Stack.Credits
 	}
+	canChallenge := m.Snap.Stack.CanChallenge
 	b.WriteString(fmt.Sprintf("你被罚摸 %d 张（叠加中）。\n", credits))
 	b.WriteString("  (1-9/0 选中可叠加牌打出) —— 传递 +2/+4 继续累加\n")
-	b.WriteString("  (a) 接受惩罚 —— 摸 " + fmt.Sprintf("%d", credits) + " 张并跳过\n\n")
+	b.WriteString("  (a) 接受惩罚 —— 摸 " + fmt.Sprintf("%d", credits) + " 张并跳过\n")
+	if canChallenge {
+		b.WriteString("  (c) 挑战最近一张 +4 —— 若其违规则惩罚减少 4 并让其摸 4\n")
+	}
+	b.WriteString("\n")
 	b.WriteString(m.renderGame(o))
 	return b.String()
 }
@@ -426,6 +431,10 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  反转：%s\n", onOff(c.Cards.EnableReverse)))
 	b.WriteString(fmt.Sprintf("  +2：%s\n", onOff(c.Cards.EnableDrawTwo)))
 	b.WriteString(fmt.Sprintf("  自动 UNO：%s\n", onOff(c.HouseRules.AutoUNO)))
+	b.WriteString("\n叠加房规：\n")
+	b.WriteString(fmt.Sprintf("  +2 叠加：%s\n", onOff(c.HouseRules.StackDrawTwo)))
+	b.WriteString(fmt.Sprintf("  +4 叠加：%s\n", onOff(c.HouseRules.StackDrawFour)))
+	b.WriteString(fmt.Sprintf("  混合叠加：%s\n", onOff(c.HouseRules.MixedStacking)))
 	b.WriteString("\n功能牌说明：\n")
 	b.WriteString(fmt.Sprintf("  跳牌（%s）：出牌后跳过下一个玩家的回合\n", onOff(c.Cards.EnableSkip)))
 	b.WriteString(fmt.Sprintf("  反转（%s）：出牌后改变出牌方向\n", onOff(c.Cards.EnableReverse)))
@@ -433,6 +442,20 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  万能（%s）：你指定下一种颜色\n", onOff(c.Cards.EnableWild)))
 	b.WriteString(fmt.Sprintf("  +4（%s）：你指定颜色，且下一个玩家摸 4 张\n", onOff(c.Cards.EnableDrawFour)))
 	b.WriteString(fmt.Sprintf("  +4 挑战（%s）：怀疑对方出 +4 时手里仍有该颜色牌，可挑战\n", onOff(c.Cards.ChallengeDrawFour)))
+	if c.HouseRules.StackDrawTwo {
+		b.WriteString("  +2 叠加：被 +2 攻击者可再出 +2 把惩罚传下去（张数累加）\n")
+	}
+	if c.HouseRules.StackDrawFour {
+		b.WriteString("  +4 叠加：被 +4 攻击者可再出 +4 把惩罚传下去（每次累加 4 张）\n")
+	}
+	if c.HouseRules.MixedStacking {
+		b.WriteString("  混合叠加：+2 与 +4 可互相叠加接力\n")
+	}
+	if c.HouseRules.MixedStacking || c.HouseRules.StackDrawFour {
+		if c.Cards.ChallengeDrawFour {
+			b.WriteString("  叠加+挑战：叠加堆中最近一张是 +4 时，受罚者可挑战该 +4\n")
+		}
+	}
 	b.WriteString("\n  (v) 返回\n")
 	return b.String()
 }
@@ -494,14 +517,22 @@ var cfgItems = []cfgEditItem{
 	{
 		label: "初始方向",
 		show:  func(c *game.Config) string { return dirNameZh(c.Game.InitialDir) },
-		next:  func(c *game.Config) { c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, 1) },
-		prev:  func(c *game.Config) { c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, -1) },
+		next: func(c *game.Config) {
+			c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, 1)
+		},
+		prev: func(c *game.Config) {
+			c.Game.InitialDir = stepChoice(c.Game.InitialDir, []string{game.DirClockwise, game.DirCounterClockwise, game.DirRandom}, -1)
+		},
 	},
 	{
 		label: "先手",
 		show:  func(c *game.Config) string { return firstPlayerZh(c.Game.FirstPlayerMode) },
-		next:  func(c *game.Config) { c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, 1) },
-		prev:  func(c *game.Config) { c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, -1) },
+		next: func(c *game.Config) {
+			c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, 1)
+		},
+		prev: func(c *game.Config) {
+			c.Game.FirstPlayerMode = stepChoice(c.Game.FirstPlayerMode, []string{game.FirstAfterDealer, game.FirstRandom, game.FirstHost}, -1)
+		},
 	},
 	toggleItem("跳牌", "skip"),
 	toggleItem("反转", "reverse"),
@@ -517,14 +548,22 @@ var cfgItems = []cfgEditItem{
 	{
 		label: "胜负模式",
 		show:  func(c *game.Config) string { return winModeZh(c.Game.WinMode) },
-		next:  func(c *game.Config) { c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, 1) },
-		prev:  func(c *game.Config) { c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, -1) },
+		next: func(c *game.Config) {
+			c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, 1)
+		},
+		prev: func(c *game.Config) {
+			c.Game.WinMode = stepChoice(c.Game.WinMode, []string{game.WinSingleRound, game.WinScore}, -1)
+		},
 	},
 	{
 		label: "目标积分",
 		show:  func(c *game.Config) string { return fmt.Sprintf("%d 分", c.Game.TargetScore) },
-		next:  func(c *game.Config) { c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, 1) },
-		prev:  func(c *game.Config) { c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, -1) },
+		next: func(c *game.Config) {
+			c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, 1)
+		},
+		prev: func(c *game.Config) {
+			c.Game.TargetScore = stepInt(c.Game.TargetScore, []int{100, 200, 500, 1000, 2000}, -1)
+		},
 	},
 }
 
@@ -642,29 +681,21 @@ func toggleSet(c *game.Config, alias string, v bool) {
 	case "draw_four":
 		c.Cards.EnableDrawFour = v
 	case "challenge":
-		// Enabling the +4 challenge disables +4 stacking / mixed (rule.md §12:
-		// the host editor auto-resolves conflicts).
+		// The +4 challenge and stacking may now coexist under the combined
+		// stacking + challenge rule (rule.md R22), so nothing is force-disabled.
 		c.Cards.ChallengeDrawFour = v
-		if v {
-			c.HouseRules.StackDrawFour = false
-			c.HouseRules.MixedStacking = false
-		}
 	case "finish":
 		c.Cards.AllowActionFinish = v
 	case "stack_two":
 		c.HouseRules.StackDrawTwo = v
 	case "stack_four":
 		c.HouseRules.StackDrawFour = v
-		if v {
-			c.Cards.ChallengeDrawFour = false
-		}
 	case "mix_stack":
 		c.HouseRules.MixedStacking = v
 		if v {
-			// Mixed stacking requires +4 stacking on and no +4 challenge (R21).
+			// Mixed stacking implies both +2 and +4 stacking (R21).
 			c.HouseRules.StackDrawTwo = true
 			c.HouseRules.StackDrawFour = true
-			c.Cards.ChallengeDrawFour = false
 		}
 		if !v && !c.HouseRules.StackDrawFour {
 			c.HouseRules.StackDrawTwo = false
@@ -850,7 +881,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeChallenge:
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
 	case ModeStack:
-		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 h=帮助 q=退出"
+		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 c=挑战+4(可) h=帮助 q=退出"
 	case ModeRules:
 		return "按键：v=返回 e=编辑(房主) h=帮助 q=退出"
 	case ModeConfigEdit:

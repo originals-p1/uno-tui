@@ -1162,3 +1162,58 @@ func TestRender_TurnOrderReversed(t *testing.T) {
 		t.Fatalf("reversed direction label missing")
 	}
 }
+
+// TestKey_StackChallenge verifies the challenge key works in a stack phase when
+// the most recent +4 is challengeable (combined stacking + challenge rule R22).
+func TestKey_StackChallenge(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 6, YourDecision: true, CanChallenge: true}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeStack {
+		t.Fatalf("expected stack mode, got %v", m.mode())
+	}
+	_, a := runKey(t, m, "c")
+	if !strings.HasPrefix(a, "challenge_stack") {
+		t.Fatalf("c should emit challenge_stack when CanChallenge, got %q", a)
+	}
+}
+
+// TestKey_StackNoChallenge verifies that when the pile's latest card is not a
+// +4 (CanChallenge=false), pressing c does not emit a challenge.
+func TestKey_StackNoChallenge(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 2, YourDecision: true, CanChallenge: false}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	// Selection key c should not be confused as a challenge.
+	_, a := runKey(t, m, "c")
+	if a != "" {
+		t.Fatalf("c must not emit a challenge when CanChallenge=false, got %q", a)
+	}
+}
+
+// TestView_RulesShowsStacking verifies the current-rules screen (press v) lists
+// the stacking and combined-challenge house rules.
+func TestView_RulesShowsStacking(t *testing.T) {
+	m := newModel("p0")
+	m.ConfigVersion = 1
+	cfg := game.DefaultConfig()
+	cfg.HouseRules.StackDrawTwo = true
+	cfg.HouseRules.StackDrawFour = true
+	cfg.HouseRules.MixedStacking = true
+	cfg.Cards.ChallengeDrawFour = true
+	m.Config = &cfg
+	out := m.renderRules(RenderOpts{Color: false})
+	for _, want := range []string{"+2 叠加：开", "+4 叠加：开", "混合叠加：开", "叠加+挑战"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rules screen missing %q:\n%s", want, out)
+		}
+	}
+}

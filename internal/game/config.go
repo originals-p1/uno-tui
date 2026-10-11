@@ -183,11 +183,9 @@ func (c Config) Validate() error {
 	}
 
 	// Conflicts from rule.md §12, restricted to the implemented surface.
-	// +4 stacking (stack_draw_four or implied by mixed_stacking) disables the
-	// single-card +4 challenge (rule.md R20 constraint; §12 matrix).
-	if (c.HouseRules.StackDrawFour || c.HouseRules.MixedStacking) && c.Cards.ChallengeDrawFour {
-		return fmt.Errorf("stack_draw_four/mixed_stacking requires challenge_draw_four=false")
-	}
+	// +4 stacking and the +4 challenge are now combinable under the combined
+	// stacking+challenge rule (rule.md R22): the target of a pile whose most
+	// recent card is a +4 may challenge that +4. So no conflict is rejected here.
 	used := c.futureFieldsEnabled()
 	if len(used) > 0 {
 		sort.Strings(used)

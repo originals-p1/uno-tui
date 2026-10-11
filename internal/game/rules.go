@@ -151,6 +151,7 @@ func (g *Game) LegalMoves(playerID string) LegalMoves {
 	case PhaseStack:
 		lm.PlayableIDs = g.stackPlayableIDs(g.Players[pi].Hand)
 		lm.CanAcceptStack = true
+		lm.CanChallengeStack = g.stackChallengeAvailable()
 	}
 	return lm
 }
@@ -175,7 +176,7 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 
 	// A regular in-turn action clears the transient challenge-outcome banner;
 	// the accept/challenge actions themselves set it.
-	if a.Type != ActionAcceptFour && a.Type != ActionChallengeFour {
+	if a.Type != ActionAcceptFour && a.Type != ActionChallengeFour && a.Type != ActionChallengeStack && a.Type != ActionAcceptStack {
 		g.lastChallengeResult = nil
 	}
 
@@ -215,6 +216,8 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 			return nil, gErr(ErrCodeInvalidPhase, "no stack penalty to accept in phase %s", g.Phase)
 		}
 		res, err = g.applyAcceptStack(pi)
+	case ActionChallengeStack:
+		res, err = g.applyChallengeStack(pi)
 	default:
 		return nil, gErr(ErrCodeInvalidArgument, "unknown action type %q", a.Type)
 	}
@@ -559,7 +562,7 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		// +2 stacking (R19): instead of immediately hitting the victim, hand off
 		// an accumulating penalty the next player may re-stack or accept.
 		if g.Config.stackingDrawTwo() {
-			g.beginStack(res, RankDrawTwo)
+			g.beginStack(res, pi, RankDrawTwo)
 			return
 		}
 		target := wrap(g.CurrentIndex+g.Direction, n)
@@ -573,7 +576,7 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		// +4 stacking (R20) or mixed stacking (R21): hand off an accumulating
 		// penalty instead of the single-card challenge (challenge is off here).
 		if g.Config.stackingDrawFour() {
-			g.beginStack(res, RankWildDrawFour)
+			g.beginStack(res, pi, RankWildDrawFour)
 			return
 		}
 		if g.Config.Cards.ChallengeDrawFour {
@@ -601,19 +604,83 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
 }
 
+// stackPileEntry records one contributed card in an in-flight stacking pile.
+// It drives the combined stacking+challenge rule (rule.md R22): when the most
+// recent pile card is a +4 the current target may challenge that +4. If the +4
+// player held the active color (violated), the entry is rolled back and the
+// player draws 4; otherwise the challenger draws the whole pile.
+type stackPileEntry struct {
+	playerID string
+	rank     Rank
+	credits  int
+	violated bool // for a +4: did the player hold the active color at play time
+}
+
+// pushStack records a contributed card and refreshes the challenge head.
+func (g *Game) pushStack(pi int, rank Rank, credits int) {
+	entry := stackPileEntry{playerID: g.Players[pi].ID, rank: rank, credits: credits}
+	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
+		entry.violated = hasColor(g.Players[pi].Hand, g.ActiveColor)
+	}
+	g.stackPile = append(g.stackPile, entry)
+	g.stackCredits += credits
+	g.stackRank = rank
+	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
+		g.stackResolverID = entry.playerID
+		g.stackResolverViolated = entry.violated
+	} else {
+		g.stackResolverID = ""
+		g.stackResolverViolated = false
+	}
+}
+
+// recomputeStackHead refreshes stackRank and the +4 challenge head from the tail
+// of the pile (used after a violated +4 is rolled back).
+func (g *Game) recomputeStackHead() {
+	if len(g.stackPile) == 0 {
+		g.stackRank = ""
+		g.stackResolverID = ""
+		g.stackResolverViolated = false
+		return
+	}
+	last := g.stackPile[len(g.stackPile)-1]
+	g.stackRank = last.rank
+	if last.rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
+		g.stackResolverID = last.playerID
+		g.stackResolverViolated = last.violated
+	} else {
+		g.stackResolverID = ""
+		g.stackResolverViolated = false
+	}
+}
+
+// clearStack resets all live stacking state.
+func (g *Game) clearStack() {
+	g.stackCredits = 0
+	g.stackRank = ""
+	g.stackPile = nil
+	g.stackResolverID = ""
+	g.stackResolverViolated = false
+}
+
+// stackChallengeAvailable reports whether the current target may challenge the
+// most recent +4 in the pile (combined stacking + challenge, rule.md R22).
+func (g *Game) stackChallengeAvailable() bool {
+	return g.Config.Cards.ChallengeDrawFour && g.stackResolverID != ""
+}
+
 // beginStack enters PhaseStack, handing an accumulated draw penalty to the next
 // player in the current direction (rule.md R19-R21). credits depends on rank.
-func (g *Game) beginStack(res *Result, rank Rank) {
+func (g *Game) beginStack(res *Result, pi int, rank Rank) {
 	n := len(g.Players)
 	credits := 2
 	if rank == RankWildDrawFour {
 		credits = 4
 	}
+	g.pushStack(pi, rank, credits)
 	target := wrap(g.CurrentIndex+g.Direction, n)
 	g.CurrentIndex = target
 	g.Phase = PhaseStack
-	g.stackRank = rank
-	g.stackCredits = credits
 	res.NextPlayerID = g.currentPlayer().ID
 	res.LegalMoves = g.stackPlayableIDs(g.currentPlayer().Hand)
 }
@@ -667,8 +734,7 @@ func (g *Game) applyPlayStack(pi int, a Action) (*Result, error) {
 	if card.Rank == RankWildDrawFour {
 		credits = 4
 	}
-	g.stackCredits += credits
-	g.stackRank = card.Rank
+	g.pushStack(pi, card.Rank, credits)
 	g.CurrentIndex = wrap(pi+g.Direction, n)
 	g.Phase = PhaseStack
 	res.NextPlayerID = g.currentPlayer().ID
@@ -687,10 +753,89 @@ func (g *Game) applyAcceptStack(pi int) (*Result, error) {
 	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
 	g.CurrentIndex = wrap(pi+g.Direction, n)
 	g.Phase = PhaseTurn
-	g.stackCredits = 0
-	g.stackRank = ""
+	g.clearStack()
 	res.NextPlayerID = g.currentPlayer().ID
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+	return res, nil
+}
+
+// applyChallengeStack resolves a challenge against the most recent +4 in an
+// in-flight stacking pile (combined stacking + challenge rule, rule.md R22).
+//   - If the +4 player held the active color (violated): that +4 is rolled back
+//     (credits -4), the player draws 4, and the challenger keeps the reduced pile
+//     (or continues on a clean board if the pile is emptied).
+//   - Otherwise: the challenger draws the entire accumulated pile and is skipped.
+func (g *Game) applyChallengeStack(pi int) (*Result, error) {
+	if g.Phase != PhaseStack {
+		return nil, gErr(ErrCodeChallengeNotAllowed, "no stacking penalty to challenge")
+	}
+	if g.Players[pi].ID != g.currentPlayer().ID {
+		return nil, gErr(ErrCodeNotYourTurn, "only the penalized player may challenge")
+	}
+	if !g.stackChallengeAvailable() {
+		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 to challenge in this penalty")
+	}
+	n := len(g.Players)
+	res := &Result{}
+	idx := -1
+	for i := len(g.stackPile) - 1; i >= 0; i-- {
+		if g.stackPile[i].rank == RankWildDrawFour {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 to challenge in this penalty")
+	}
+	last := g.stackPile[idx]
+	g.lastChallengeResult = &ChallengeResult{
+		ResolverPlayerID:   last.playerID,
+		ChallengerPlayerID: g.Players[pi].ID,
+	}
+	if last.violated {
+		// Resolver held the active color: nullify the +4, they draw 4, and the
+		// challenger carries on with the reduced pile.
+		resolverIdx := g.playerIndex(last.playerID)
+		if resolverIdx < 0 {
+			return nil, gErr(ErrCodeInternal, "stack resolver missing")
+		}
+		g.stackPile = append(g.stackPile[:idx], g.stackPile[idx+1:]...)
+		g.stackCredits -= 4
+		if g.stackCredits < 0 {
+			g.stackCredits = 0
+		}
+		drawn := g.drawCards(4)
+		g.Players[resolverIdx].Hand = append(g.Players[resolverIdx].Hand, drawn...)
+		g.updateUNO(resolverIdx)
+		g.cardDrawnEvent(res, g.Players[resolverIdx].ID, len(drawn))
+		g.lastChallengeResult.Succeeded = true
+		g.CurrentIndex = pi
+		res.Events = append(res.Events, g.event(EventChallengeSucceeded, g.Players[pi].ID, nil, ""))
+		if len(g.stackPile) == 0 || g.stackCredits <= 0 {
+			g.clearStack()
+			g.Phase = PhaseTurn
+			res.NextPlayerID = g.currentPlayer().ID
+			res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+		} else {
+			g.recomputeStackHead()
+			g.Phase = PhaseStack
+			res.NextPlayerID = g.currentPlayer().ID
+			res.LegalMoves = g.stackPlayableIDs(g.currentPlayer().Hand)
+		}
+		return res, nil
+	}
+	// Clean: challenger draws the whole pile and is skipped.
+	drawn := g.drawCards(g.stackCredits)
+	g.Players[pi].Hand = append(g.Players[pi].Hand, drawn...)
+	g.updateUNO(pi)
+	g.cardDrawnEvent(res, g.Players[pi].ID, len(drawn))
+	g.lastChallengeResult.Succeeded = false
+	g.clearStack()
+	g.Phase = PhaseTurn
+	g.CurrentIndex = wrap(pi+g.Direction, n)
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
+	res.Events = append(res.Events, g.event(EventChallengeFailed, g.Players[pi].ID, nil, ""))
 	return res, nil
 }
 

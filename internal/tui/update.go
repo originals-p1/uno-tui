@@ -224,10 +224,14 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			return m, actCmd(ActAcceptFour)
 		}
 	case ModeStack:
-		// In a stacking phase you may play a +2/+4 to keep stacking, or accept
-		// the accumulated penalty with "a".
+		// In a stacking phase you may play a +2/+4 to keep stacking, accept the
+		// accumulated penalty with "a", or (combined rule) challenge the most
+		// recent +4 with "c".
 		if k == "a" {
 			return m, actCmd(ActAcceptStack)
+		}
+		if k == "c" && m.Snap != nil && m.Snap.Stack != nil && m.Snap.Stack.CanChallenge {
+			return m, actCmd(ActChallengeStack)
 		}
 		switch k {
 		case "up", "k":
@@ -264,9 +268,13 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		// Hand-cursor navigation for large hands (>10 cards).
 		switch k {
 		case "up", "k":
-			nm := m; nm.moveHandSel(-1); return nm, nil
+			nm := m
+			nm.moveHandSel(-1)
+			return nm, nil
 		case "down", "j":
-			nm := m; nm.moveHandSel(1); return nm, nil
+			nm := m
+			nm.moveHandSel(1)
+			return nm, nil
 		case "enter":
 			return m.playHandAt(m.handSel)
 		}

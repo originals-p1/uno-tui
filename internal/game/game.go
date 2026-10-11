@@ -96,11 +96,17 @@ type Game struct {
 	pendingWinPlayerID string
 
 	// Stacking state (rule.md R19/R20/R21). When a draw-penalty is in flight
-	// the game enters PhaseStack: the current player may either play a stacking
-	// card (+2/+4) to accumulate the penalty, or accept it. stackCredits is the
-	// running total and stackRank the rank currently being stacked.
+	// the game enters PhaseStack: the current player may play a stacking card
+	// (+2/+4) to accumulate the penalty, accept it, or (with the combined
+	// stacking+challenge rule) challenge the most recent +4.
 	stackCredits int
-	stackRank    Rank
+	stackRank    Rank // rank of the most recent card added to the pile
+	stackPile    []stackPileEntry
+	// stackResolverID is the player of the most recent +4 in the pile, which the
+	// current target may challenge when challenge_draw_four is on. Empty when the
+	// pile's latest card is not a +4 (no challenge offered).
+	stackResolverID       string
+	stackResolverViolated bool // that +4 player held the active color when played
 }
 
 // NewGame builds a fresh game from the standard 108-card deck, dealing opening

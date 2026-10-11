@@ -51,6 +51,7 @@ type ChallengeView struct {
 type StackView struct {
 	Credits      int  `json:"credits"`
 	YourDecision bool `json:"your_decision"` // true == it is your choice
+	CanChallenge bool `json:"can_challenge"` // most recent +4 can be challenged (combined rule R22)
 }
 
 // ChallengeResult is a transient outcome banner describing how a +4 challenge
@@ -97,13 +98,13 @@ type GameView struct {
 
 	// SCORE-mode match fields (rule.md R28), populated by the room, not the
 	// per-round engine. Empty in single-round mode.
-	WinMode            string            `json:"win_mode,omitempty"`
-	RoundNumber        int               `json:"round_number,omitempty"`
-	TargetScore        int               `json:"target_score,omitempty"`
-	Scores             map[string]int    `json:"scores,omitempty"`
-	MatchOver          bool              `json:"match_over,omitempty"`
-	MatchWinnerPlayerID string           `json:"match_winner_player_id,omitempty"`
-	RoundResult        *RoundResult      `json:"round_result,omitempty"`
+	WinMode             string         `json:"win_mode,omitempty"`
+	RoundNumber         int            `json:"round_number,omitempty"`
+	TargetScore         int            `json:"target_score,omitempty"`
+	Scores              map[string]int `json:"scores,omitempty"`
+	MatchOver           bool           `json:"match_over,omitempty"`
+	MatchWinnerPlayerID string         `json:"match_winner_player_id,omitempty"`
+	RoundResult         *RoundResult   `json:"round_result,omitempty"`
 }
 
 // BuildViewFor returns a personalized view for playerID. Different players
@@ -161,8 +162,9 @@ func (g *Game) BuildViewFor(playerID string) *GameView {
 	}
 	if g.Phase == PhaseStack {
 		v.Stack = &StackView{
-			Credits:     g.stackCredits,
+			Credits:      g.stackCredits,
 			YourDecision: playerID == g.currentPlayer().ID,
+			CanChallenge: g.stackChallengeAvailable(),
 		}
 	}
 	if g.lastChallengeResult != nil {

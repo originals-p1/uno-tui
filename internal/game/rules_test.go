@@ -883,16 +883,18 @@ func TestStack_MixedAllowsSwitchToFour(t *testing.T) {
 	}
 }
 
-func TestStack_DrawFourRequiresNoChallenge(t *testing.T) {
+func TestStack_DrawFourAllowsChallenge(t *testing.T) {
+	// Under the combined stacking + challenge rule (rule.md R22), +4 stacking
+	// and the +4 challenge may be enabled together (no longer mutually exclusive).
 	c := DefaultConfig()
 	c.HouseRules.StackDrawFour = true
-	c.Cards.ChallengeDrawFour = true // conflicting
-	if err := c.Validate(); err == nil {
-		t.Fatal("stack_draw_four with challenge_draw_four should be rejected")
-	}
-	c.Cards.ChallengeDrawFour = false
+	c.Cards.ChallengeDrawFour = true
 	if err := c.Validate(); err != nil {
-		t.Fatalf("stack_draw_four with challenge off should pass, got %v", err)
+		t.Fatalf("stack_draw_four with challenge_draw_four should now be allowed, got %v", err)
+	}
+	c.HouseRules.MixedStacking = true
+	if err := c.Validate(); err != nil {
+		t.Fatalf("mixed_stacking with challenge_draw_four should now be allowed, got %v", err)
 	}
 }
 
