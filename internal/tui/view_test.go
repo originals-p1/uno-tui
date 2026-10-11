@@ -1136,3 +1136,29 @@ func TestView_NonDecisionStackBanner(t *testing.T) {
 		t.Fatalf("non-decision stack banner missing: %q", out)
 	}
 }
+
+// TestRender_TurnOrderReversed verifies that once the direction flips, the
+// rendered turn-order sequence reflects the reversed direction while the arrow
+// diagram still reads left-to-right with the right arrow.
+func TestRender_TurnOrderReversed(t *testing.T) {
+	m := newModel("p0")
+	v := testSnap()
+	v.Players = []game.PlayerView{
+		{ID: "p0", Name: "Alice"},
+		{ID: "p1", Name: "Bob"},
+		{ID: "p2", Name: "Carol"},
+		{ID: "p3", Name: "Dan"},
+	}
+	v.Direction = -1
+	v.CurrentPlayer = "p1" // Bob to start counter-clockwise
+	nm, _ := m.Update(SnapshotMsg{View: v})
+	m = nm.(Model)
+	line := m.renderTurnOrder(RenderOpts{Unicode: true})
+	// Counter-clockwise from Bob: Bob -> Alice -> Dan -> Carol -> Bob.
+	if !strings.Contains(line, "▶Bob → Alice → Dan → Carol → ▶回到起点") {
+		t.Fatalf("reversed turn order wrong: %q", line)
+	}
+	if !strings.Contains(line, "逆时针") {
+		t.Fatalf("reversed direction label missing")
+	}
+}
