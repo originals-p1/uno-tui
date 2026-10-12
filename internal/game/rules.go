@@ -605,43 +605,28 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
 }
 
-// stackPileEntry records one contributed card in an in-flight stacking pile.
-// It drives the combined stacking+challenge rule (rule.md R23): only the FIRST
-// +4 played onto the pile can be challenged. If that +4 player held the active
-// color (violated), the entry is rolled back and the player draws 4; otherwise
-// the challenger draws the whole pile.
+// stackPileEntry records one contributed card in an in-flight stacking pile. Only
+// the accumulated credits and the pile topology matter for play: during stacking
+// the target may only re-stack or accept (challenge is disabled). The violated /
+// triggerColor fields were used by the (now disabled) stacking+challenge rule.
 type stackPileEntry struct {
-	playerID string
-	rank     Rank
+	playerID    string
+	rank        Rank
 	credits     int
-	violated    bool   // for a +4: did the player hold the active color at play time
-	triggerColor string // for a +4: the judgment color (active color at play time)
+	violated    bool   // inert: challenge disabled during stacking
+	triggerColor string // inert: challenge disabled during stacking
 }
 
-// pushStack records a contributed card. The challengeable resolver is latched to
-// the FIRST +4 of the pile only; subsequently stacked +4s are treated as forced
-// responses and are never challengeable.
+// pushStack records a contributed card and grows the accumulated penalty.
 func (g *Game) pushStack(pi int, rank Rank, credits int) {
 	entry := stackPileEntry{playerID: g.Players[pi].ID, rank: rank, credits: credits}
-	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
-		entry.violated = hasColor(g.Players[pi].Hand, g.ActiveColor)
-		entry.triggerColor = string(g.ActiveColor)
-	}
 	g.stackPile = append(g.stackPile, entry)
 	g.stackCredits += credits
 	g.stackRank = rank
-	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour &&
-		!g.stackChallengeUsed && g.stackResolverID == "" {
-		// Latch the initial +4 as the only challengeable one.
-		g.stackResolverID = entry.playerID
-		g.stackResolverViolated = entry.violated
-	}
 }
 
-// recomputeStackHead refreshes stackRank from the tail of the pile (used after
-// a violated +4 is rolled back). It intentionally leaves the challengeable
-// initial-+4 resolver untouched: once the initial +4 exists, later +4s are not
-// challengeable even if they become the tail.
+// recomputeStackHead refreshes stackRank from the tail of the pile after a card
+// has been accepted/resolved; it is called when the pile top may have changed.
 func (g *Game) recomputeStackHead() {
 	if len(g.stackPile) == 0 {
 		g.stackRank = ""
@@ -661,11 +646,13 @@ func (g *Game) clearStack() {
 	g.stackChallengeUsed = false
 }
 
-// stackChallengeAvailable reports whether the current target may challenge the
-// initial (first) +4 in the pile (combined stacking + challenge, rule.md R23).
-// The initial +4 is challengeable exactly once per pile.
+// stackChallengeAvailable reports whether the current target may challenge a +4
+// while a penalty is stacking. Stacking and +4 challenge are mutually exclusive:
+// once a draw-penalty is being accumulated, the target may only re-stack it or
+// accept it — never challenge. This is therefore always false; the +4 challenge
+// (R13) applies only to a lone +4 outside a stacking pile.
 func (g *Game) stackChallengeAvailable() bool {
-	return g.Config.Cards.ChallengeDrawFour && !g.stackChallengeUsed && g.stackResolverID != ""
+	return false
 }
 
 // beginStack enters PhaseStack, handing an accumulated draw penalty to the next
@@ -758,13 +745,10 @@ func (g *Game) applyAcceptStack(pi int) (*Result, error) {
 	return res, nil
 }
 
-// applyChallengeStack resolves a challenge against the initial (first) +4 in an
-// in-flight stacking pile (combined stacking + challenge rule, rule.md R23). Only
-// that initial +4 is challengeable, exactly once per pile.
-//   - If the +4 player held the active color (violated): that +4 is rolled back
-//     (credits -4), the player draws 4, and the challenger keeps the reduced pile
-//     (or continues on a clean board if the pile is emptied).
-//   - Otherwise: the challenger draws the entire accumulated pile and is skipped.
+// applyChallengeStack is a reserved handler for a stacking +4 challenge. Stacking
+// and +4 challenge are mutually exclusive, and stackChallengeAvailable is always
+// false, so any challenge_stack action during a stacking phase is rejected here.
+// It is kept as a defensive guard in case a client sends the action directly.
 func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 	if g.Phase != PhaseStack {
 		return nil, gErr(ErrCodeChallengeNotAllowed, "no stacking penalty to challenge")
@@ -773,7 +757,7 @@ func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 		return nil, gErr(ErrCodeNotYourTurn, "only the penalized player may challenge")
 	}
 	if !g.stackChallengeAvailable() {
-		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 to challenge in this penalty")
+		return nil, gErr(ErrCodeChallengeNotAllowed, "challenge is not allowed while stacking (stacking and challenge are mutually exclusive)")
 	}
 	n := len(g.Players)
 	res := &Result{}

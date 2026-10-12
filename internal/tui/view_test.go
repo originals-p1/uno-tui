@@ -1622,8 +1622,11 @@ func TestRender_StackDecisionScreen(t *testing.T) {
 	if !strings.Contains(out, "你被罚摸 6 张（叠加中）") {
 		t.Fatalf("stack screen credits missing: %q", out)
 	}
-	if !strings.Contains(out, "(a) 接受惩罚") || !strings.Contains(out, "(c) 挑战初始 +4") {
+	if !strings.Contains(out, "(a) 接受惩罚") || !strings.Contains(out, "继续累加") {
 		t.Fatalf("stack decision prompts missing: %q", out)
+	}
+	if strings.Contains(out, "挑战") {
+		t.Fatalf("stack screen must NOT offer a challenge (stacking excludes challenge): %q", out)
 	}
 }
 

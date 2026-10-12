@@ -127,37 +127,34 @@ func challengeStackRoom(t *testing.T) *Room {
 	return r
 }
 
-// TestRoom_Stack_ChallengeFlows verifies the combined-rule challenge_stack
-// action flows through the server: a clean challenge makes the challenger draw
-// the whole pile and the pile clears.
-func TestRoom_Stack_ChallengeFlows(t *testing.T) {
+// TestRoom_Stack_ChallengeRejected verifies that during a stacking penalty the
+// challenge_stack action is rejected end-to-end through the server: stacking and
+// challenge are mutually exclusive, so the target may only re-stack or accept.
+func TestRoom_Stack_ChallengeRejected(t *testing.T) {
 	r := challengeStackRoom(t)
 	out := r.Submit(NewRequest(KindPlayCard, "s1", "rC1", exp(0), game.Action{Type: game.ActionChallengeStack}))
-	if !out.OK() {
-		t.Fatalf("challenge_stack failed: %+v", out)
+	if out.OK() {
+		t.Fatalf("challenge_stack during stacking must be rejected: %+v", out)
 	}
-	v := out.Commit.Requester
-	if v.Stack != nil {
-		t.Fatalf("stack should clear after clean challenge, got %+v", v.Stack)
+	if out.ErrCode == "" {
+		t.Fatalf("expected an error code for the rejected challenge, got %+v", out)
 	}
-	if v.Phase != string(game.PhaseTurn) {
-		t.Fatalf("phase = %s, want turn", v.Phase)
+	// Stack is still live: not cleared, no banner.
+	v := out.Snapshot
+	if v.Stack == nil {
+		t.Fatalf("stack should still be live after rejected challenge, got %+v", v)
 	}
-	// Clean challenge: Bob drew the whole 4-card pile and was skipped -> Carol.
-	if v.CurrentPlayer != "p2" {
-		t.Fatalf("current = %s, want p2", v.CurrentPlayer)
+	if v.Phase != string(game.PhaseStack) {
+		t.Fatalf("phase = %s, want stack (unchanged)", v.Phase)
 	}
-	if pv := playerCount(v, "p1"); pv != 5 {
-		t.Fatalf("p1 card count = %d, want 5 (1 + 4 drawn)", pv)
+	if v.ChallengeRes != nil {
+		t.Fatalf("no challenge banner expected on a rejected challenge, got %+v", v.ChallengeRes)
 	}
-	// Clean challenge surfaces as a banner with succeeded=false.
-	if v.ChallengeRes == nil {
-		t.Fatalf("expected challenge_result banner in view, got nil")
+	// Bob's hand is unchanged (still 1) and the pile still faces him.
+	if pv := playerCount(v, "p1"); pv != 1 {
+		t.Fatalf("p1 card count = %d, want 1 (unchanged)", pv)
 	}
-	if v.ChallengeRes.Succeeded {
-		t.Fatalf("clean stack challenge must be succeeded=false, got %+v", v.ChallengeRes)
-	}
-	if v.ChallengeRes.ResolverPlayerID != "p0" || v.ChallengeRes.ChallengerPlayerID != "p1" {
-		t.Fatalf("challenge result players = %+v, want resolver p0 / challenger p1", v.ChallengeRes)
+	if v.CurrentPlayer != "p1" {
+		t.Fatalf("current = %s, want p1 (still at bat)", v.CurrentPlayer)
 	}
 }

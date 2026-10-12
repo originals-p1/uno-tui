@@ -224,9 +224,9 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			return m, actCmd(ActAcceptFour)
 		}
 	case ModeStack:
-		// In a stacking phase you may play a +2/+4 to keep stacking, accept the
-		// accumulated penalty with "a", or (combined rule) challenge the most
-		// recent +4 with "c".
+		// During a stacking penalty you may play a +2/+4 to keep stacking or
+		// accept with "a". The +4 challenge is disabled while stacking, but we
+		// keep the "c" hook guarded by CanChallenge (always false) defensively.
 		if k == "a" {
 			return m, actCmd(ActAcceptStack)
 		}

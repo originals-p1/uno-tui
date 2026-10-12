@@ -278,13 +278,9 @@ func (m Model) renderStack(o RenderOpts) string {
 	if m.Snap != nil && m.Snap.Stack != nil {
 		credits = m.Snap.Stack.Credits
 	}
-	canChallenge := m.Snap.Stack.CanChallenge
 	b.WriteString(fmt.Sprintf("你被罚摸 %d 张（叠加中）。\n", credits))
 	b.WriteString("  (1-9/0 选中可叠加牌打出) —— 传递 +2/+4 继续累加\n")
 	b.WriteString("  (a) 接受惩罚 —— 摸 " + fmt.Sprintf("%d", credits) + " 张并跳过\n")
-	if canChallenge {
-		b.WriteString("  (c) 挑战初始 +4 —— 若其握有出 +4 前的判定色则违规：惩罚 −4 并让其摸 4；否则你摸整堆\n")
-	}
 	b.WriteString("\n")
 	b.WriteString(m.renderGame(o))
 	return b.String()
@@ -527,7 +523,7 @@ func (m Model) renderRules(o RenderOpts) string {
 	}
 	if c.HouseRules.MixedStacking || c.HouseRules.StackDrawFour {
 		if c.Cards.ChallengeDrawFour {
-			b.WriteString("  叠加+挑战：仅首个 +4 可挑战一次；按「出 +4 前的桌面颜色」判违规\n")
+			b.WriteString("  叠加+挑战：叠加与挑战互斥——累加中不可挑战，只能继续叠或接受\n")
 		}
 	}
 	b.WriteString("\n  (v) 返回\n")
@@ -981,11 +977,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeChallenge:
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
 	case ModeStack:
-		// Only advertise the +4-challenge key when the most recent +4 is actually
-		// challengeable (rule.md R22); a pure +2 pile has no challenge.
-		if m.Snap != nil && m.Snap.Stack != nil && m.Snap.Stack.CanChallenge {
-			return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 c=挑战+4(可) h=帮助 q=退出"
-		}
+		// Stacking excludes the +4 challenge, so only stacking/accept keys appear.
 		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 h=帮助 q=退出"
 	case ModeRoundOver:
 		return "按键：c=开始下一局   (l) 离开房间   h=帮助"
