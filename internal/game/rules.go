@@ -148,6 +148,12 @@ func (g *Game) LegalMoves(playerID string) LegalMoves {
 			// Only the just-drawn card may be played in this phase.
 			lm.PlayableIDs = []string{g.DrawnCardID}
 		}
+	case PhaseChallenge:
+		// Combined stacking + challenge (Option A): the first +4 is challengeable.
+		// While the target decides, stackable +2/+4 cards are also offered so
+		// they can re-stack and start an accumulating pile instead of accepting
+		// or challenging (stacking itself then becomes non-challengeable).
+		lm.PlayableIDs = g.stackPlayableIDs(g.Players[pi].Hand)
 	case PhaseStack:
 		lm.PlayableIDs = g.stackPlayableIDs(g.Players[pi].Hand)
 		lm.CanAcceptStack = true
@@ -187,6 +193,8 @@ func (g *Game) Apply(playerID string, a Action) (*Result, error) {
 		switch g.Phase {
 		case PhaseTurn:
 			res, err = g.applyPlayHandCard(pi, a)
+		case PhaseChallenge:
+			res, err = g.applyPlayStackFromChallenge(pi, a)
 		case PhaseStack:
 			res, err = g.applyPlayStack(pi, a)
 		default:
@@ -574,19 +582,25 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 		g.CurrentIndex = wrap(g.CurrentIndex+2*g.Direction, n)
 		res.Events = append(res.Events, g.event(EventSkipped, playerID, nil, "", g.Players[target].ID))
 	case RankWildDrawFour:
-		// +4 stacking (R20) or mixed stacking (R21): hand off an accumulating
-		// penalty instead of the single-card challenge (challenge is off here).
-		if g.Config.stackingDrawFour() {
-			g.beginStack(res, pi, RankWildDrawFour)
-			return
-		}
+		// Option A (combined stacking + challenge): the FIRST +4 is always
+		// challengeable when challenges are enabled, even if +4 stacking (R20 /
+		// R21) is also on. It does not begin a stack pile directly; stacking only
+		// starts when the +4 target re-stacks from the challenge decision
+		// (applyPlayStackFromChallenge), after which the pile is non-challengeable.
 		if g.Config.Cards.ChallengeDrawFour {
-			// The +4 effect is suspended until the target accepts or challenges.
+			// The +4 effect is suspended until the target accepts, challenges or
+			// re-stacks.
 			target := wrap(g.CurrentIndex+g.Direction, n)
 			g.CurrentIndex = target
 			g.Phase = PhaseChallenge
 			res.Events = append(res.Events, g.event(EventChallenge, playerID, nil, "", g.Players[target].ID))
 			res.NextPlayerID = g.Players[target].ID
+			return
+		}
+		// Challenges off: +4 stacking (R20) or mixed stacking (R21) hand off an
+		// accumulating penalty instead of a single-card effect.
+		if g.Config.stackingDrawFour() {
+			g.beginStack(res, pi, RankWildDrawFour)
 			return
 		}
 		target := wrap(g.CurrentIndex+g.Direction, n)
@@ -694,6 +708,56 @@ func (g *Game) stackPlayableIDs(hand []Card) []string {
 		}
 	}
 	return ids
+}
+
+// applyPlayStackFromChallenge lets the target of a first +4 re-stack from the
+// challenge decision (combined stacking + challenge, Option A / rule.md R23).
+// Instead of accepting or challenging the single +4, the target plays a further
+// +2/+4 to pass the accumulated penalty on. This starts an accumulating pile
+// whose base is the original +4; from this point the penalty is a stacking pile
+// and can no longer be challenged (only re-stacked or accepted).
+func (g *Game) applyPlayStackFromChallenge(pi int, a Action) (*Result, error) {
+	if g.Phase != PhaseChallenge {
+		return nil, gErr(ErrCodeInvalidPhase, "no challenge to stack from in phase %s", g.Phase)
+	}
+	if g.Players[pi].ID != g.currentPlayer().ID {
+		return nil, gErr(ErrCodeNotYourTurn, "only the +4 target may re-stack")
+	}
+	cidx := IndexOf(g.Players[pi].Hand, a.CardID)
+	if cidx < 0 {
+		return nil, gErr(ErrCodeCardNotOwned, "player does not own card %q", a.CardID)
+	}
+	card := g.Players[pi].Hand[cidx]
+	if !g.canStack(card) {
+		return nil, gErr(ErrCodeCardNotPlayable, "card %s cannot be stacked onto the penalty", card)
+	}
+	chosen, err := g.resolveChosenColor(card, a)
+	if err != nil {
+		return nil, err
+	}
+	res := g.discardFromHand(pi, card, chosen)
+	if res.Ended {
+		return res, nil
+	}
+	// The original +4 (already discarded when it was played) becomes the base of
+	// the accumulating pile; record its credit for the pile bookkeeping.
+	resolverIdx := g.playerIndex(g.challengeResolver)
+	g.pushStack(resolverIdx, RankWildDrawFour, 4)
+	g.challengeViolated = false
+	g.challengeResolver = ""
+	g.challengeTriggerColor = ""
+	n := len(g.Players)
+	credits := 2
+	if card.Rank == RankWildDrawFour {
+		credits = 4
+	}
+	g.pushStack(pi, card.Rank, credits)
+	g.CurrentIndex = wrap(pi+g.Direction, n)
+	g.Phase = PhaseStack
+	res.NextPlayerID = g.currentPlayer().ID
+	res.LegalMoves = g.stackPlayableIDs(g.currentPlayer().Hand)
+	g.maybeResolveDeferredWin(res)
+	return res, nil
 }
 
 // applyPlayStack plays a stacking card (+2 or +4) to accumulate the penalty and

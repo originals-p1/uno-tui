@@ -88,18 +88,21 @@ func playerCount(v *game.GameView, id string) int {
 	return -1
 }
 
-// challengeStackRoom builds a started room whose game is in PhaseStack with a
-// challengeable +4 (combined stacking + challenge rule R23): p0 played a +4
-// targeting p1. Both stacking and challenge are enabled.
+// challengeStackRoom builds a started room whose game is in PhaseStack under the
+// combined stacking + challenge rule (Option A / rule.md R23): p0's first +4
+// enters the challenge phase, then p1 re-stacks with a +4, starting an
+// accumulating pile facing p2. Both stacking and challenge are enabled, so once
+// the pile is stacking no challenge is available.
 func challengeStackRoom(t *testing.T) *Room {
 	t.Helper()
 	g, err := game.NewGame([]string{"Alice", "Bob", "Carol"}, rand.NewSource(1))
 	if err != nil {
 		t.Fatalf("NewGame: %v", err)
 	}
-	// Alice holds a green +4 + green spare (clean, not violated); Bob charged.
+	// Alice holds a green +4 + green spare (clean, not violated); Bob holds a
+	// +4 to re-stack; Carol receives the accumulating pile.
 	g.Players[0].Hand = []game.Card{{ID: "w4", Color: game.ColorWild, Rank: game.RankWildDrawFour}, {ID: "ok", Color: game.ColorGreen, Rank: game.RankSeven}}
-	g.Players[1].Hand = []game.Card{{ID: "b", Color: game.ColorGreen, Rank: game.RankNine}}
+	g.Players[1].Hand = []game.Card{{ID: "w4b", Color: game.ColorWild, Rank: game.RankWildDrawFour}, {ID: "b", Color: game.ColorGreen, Rank: game.RankNine}}
 	g.Players[2].Hand = []game.Card{{ID: "c", Color: game.ColorRed, Rank: game.RankSix}}
 	g.DiscardPile = []game.Card{{ID: "top", Color: game.ColorRed, Rank: game.RankFive}}
 	g.DrawPile = []game.Card{{ID: "q1", Color: game.ColorGreen, Rank: game.RankOne}, {ID: "q2", Color: game.ColorYellow, Rank: game.RankTwo}, {ID: "q3", Color: game.ColorRed, Rank: game.RankThree}, {ID: "q4", Color: game.ColorBlue, Rank: game.RankFour}, {ID: "q5", Color: game.ColorGreen, Rank: game.RankFive}}
@@ -111,11 +114,13 @@ func challengeStackRoom(t *testing.T) *Room {
 	g.Config.HouseRules.StackDrawFour = true
 	g.Config.Cards.ChallengeDrawFour = true
 
-	// Drive Alice's +4 via the engine so the room lands in PhaseStack with a
-	// challengeable head.
+	// Drive via the engine: Alice's +4 -> challenge, Bob re-stacks -> PhaseStack.
 	red := game.ColorRed
 	if _, err := g.Apply("p0", game.Action{Type: game.ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
-		t.Fatalf("drive to stack phase: %v", err)
+		t.Fatalf("drive Alice's +4: %v", err)
+	}
+	if _, err := g.Apply("p1", game.Action{Type: game.ActionPlayCard, CardID: "w4b", ChosenColor: &red}); err != nil {
+		t.Fatalf("drive Bob's re-stack: %v", err)
 	}
 
 	r := NewRoom(g, 0, NewRealClock())
@@ -128,11 +133,11 @@ func challengeStackRoom(t *testing.T) *Room {
 }
 
 // TestRoom_Stack_ChallengeRejected verifies that during a stacking penalty the
-// challenge_stack action is rejected end-to-end through the server: stacking and
-// challenge are mutually exclusive, so the target may only re-stack or accept.
+// challenge_stack action is rejected end-to-end through the server: once the
+// penalty is an accumulating pile, the target may only re-stack or accept.
 func TestRoom_Stack_ChallengeRejected(t *testing.T) {
 	r := challengeStackRoom(t)
-	out := r.Submit(NewRequest(KindPlayCard, "s1", "rC1", exp(0), game.Action{Type: game.ActionChallengeStack}))
+	out := r.Submit(NewRequest(KindPlayCard, "s2", "rC1", exp(0), game.Action{Type: game.ActionChallengeStack}))
 	if out.OK() {
 		t.Fatalf("challenge_stack during stacking must be rejected: %+v", out)
 	}
@@ -150,11 +155,11 @@ func TestRoom_Stack_ChallengeRejected(t *testing.T) {
 	if v.ChallengeRes != nil {
 		t.Fatalf("no challenge banner expected on a rejected challenge, got %+v", v.ChallengeRes)
 	}
-	// Bob's hand is unchanged (still 1) and the pile still faces him.
-	if pv := playerCount(v, "p1"); pv != 1 {
-		t.Fatalf("p1 card count = %d, want 1 (unchanged)", pv)
+	// Carol's hand is unchanged (still 1) and the pile still faces her.
+	if pv := playerCount(v, "p2"); pv != 1 {
+		t.Fatalf("p2 card count = %d, want 1 (unchanged)", pv)
 	}
-	if v.CurrentPlayer != "p1" {
-		t.Fatalf("current = %s, want p1 (still at bat)", v.CurrentPlayer)
+	if v.CurrentPlayer != "p2" {
+		t.Fatalf("current = %s, want p2 (still at bat)", v.CurrentPlayer)
 	}
 }

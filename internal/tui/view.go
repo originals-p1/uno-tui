@@ -267,6 +267,14 @@ func (m Model) renderChallenge(o RenderOpts) string {
 	b.WriteString("判定色（出 +4 前的桌面颜色）：【" + colZh + "】—— 他当时手上若有【" + colZh + "】即违规\n\n")
 	b.WriteString("  (c) 挑战 —— 违规：他摸 4、你继续 / 清白：你摸 6、跳过\n")
 	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
+	// Combined stacking + challenge: the first +4 may be re-stacked with a
+	// +2/+4 (starting an accumulating, non-challengeable pile) whenever
+	// stackable cards are offered in the challenge phase.
+	if m.Snap != nil && len(m.Snap.PlayableIDs) > 0 {
+		b.WriteString("  (1-9/0 选中 +2/+4 打出) —— 叠加并传给下家\n")
+	}
+	b.WriteString("\n")
+	b.WriteString(m.renderGame(o))
 	return b.String()
 }
 

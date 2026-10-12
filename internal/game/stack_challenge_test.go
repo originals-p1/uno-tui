@@ -2,14 +2,16 @@ package game
 
 import "testing"
 
-// combinedStackGame builds a 4-player game in PhaseStack where p0 played a +4
-// onto an empty pile (stackCredits=4, current is p1). Under the current rule
-// (stacking + challenge are mutually exclusive) this pile is NOT challengeable.
-func combinedStackGame(t *testing.T) *Game {
+// challengeGame builds a 4-player game where p0 played a +4 onto an empty pile
+// with BOTH +4 stacking (R20) and the +4 challenge (R13) enabled. Under the
+// combined stacking + challenge rule (Option A / rule.md R23) the FIRST +4 does
+// not begin a stack: it enters the challenge phase, and stacking only starts
+// when the target re-stacks. p1 holds a stackable +4.
+func challengeGame(t *testing.T) *Game {
 	g := mkGame(
 		[][]Card{
 			{tcard("w4", ColorWild, RankWildDrawFour), tcard("a", ColorRed, RankOne)},
-			{tcard("b", ColorGreen, RankTwo)},
+			{tcard("b", ColorGreen, RankTwo), tcard("w4b", ColorWild, RankWildDrawFour)},
 			{tcard("c", ColorYellow, RankThree)},
 			{tcard("d", ColorBlue, RankFour)},
 		},
@@ -24,68 +26,98 @@ func combinedStackGame(t *testing.T) *Game {
 	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
 		t.Fatalf("p0 plays +4: %v", err)
 	}
-	if g.Phase != PhaseStack || g.CurrentIndex != 1 {
-		t.Fatalf("setup: phase=%s current=%d, want stack/1", g.Phase, g.CurrentIndex)
+	if g.Phase != PhaseChallenge || g.CurrentIndex != 1 {
+		t.Fatalf("setup: phase=%s current=%d, want challenge/1", g.Phase, g.CurrentIndex)
 	}
 	return g
 }
 
-// TestStack_Challenge_Disabled verifies stacking and +4 challenge are mutually
-// exclusive: a +4 pile never offers a challenge and the action is rejected.
-func TestStack_Challenge_Disabled(t *testing.T) {
-	g := combinedStackGame(t)
-	if g.stackChallengeAvailable() {
-		t.Fatal("stacking pile must not offer a challenge")
+// TestStack_FirstFour_EntersChallengeNotStack verifies the FIRST +4 with both
+// stacking and challenge enabled is challengeable and does not begin a stack
+// pile: the game enters the challenge phase, the target may offer a +2/+4 to
+// re-stack, and accept/challenge remain available.
+func TestStack_FirstFour_EntersChallengeNotStack(t *testing.T) {
+	g := challengeGame(t)
+	if g.Phase != PhaseChallenge {
+		t.Fatalf("phase = %s, want challenge (first +4 challengeable)", g.Phase)
 	}
 	lm := g.LegalMoves("p1")
-	if lm.CanChallengeStack {
-		t.Fatal("LegalMoves must not expose CanChallengeStack during stacking")
+	if len(lm.PlayableIDs) != 1 || lm.PlayableIDs[0] != "w4b" {
+		t.Fatalf("p1 stackable in challenge = %v, want [w4b]", lm.PlayableIDs)
 	}
 	v := g.BuildViewFor("p1")
-	if v.Stack == nil || v.Stack.CanChallenge {
-		t.Fatalf("view stack=%+v, want can_challenge=false", v.Stack)
+	if v.Challenge == nil || !v.Challenge.YourDecision {
+		t.Fatalf("p1 should hold the +4 challenge decision, got %+v", v.Challenge)
 	}
-	if _, err := g.Apply("p1", Action{Type: ActionChallengeStack}); err == nil {
-		t.Fatal("challenge_stack during stacking should be rejected")
+	if v.Stack != nil {
+		t.Fatalf("no stack pile should exist before re-stacking, got %+v", v.Stack)
 	}
 }
 
-// TestStack_Challenge_RejectedLeavesPileIntact verifies a rejected challenge does
-// not drain, roll back, or alter the pile: the player may only re-stack/accept.
-func TestStack_Challenge_RejectedLeavesPileIntact(t *testing.T) {
-	g := combinedStackGame(t)
+// TestStack_ReStackFromChallenge_StartsNonChallengeablePile verifies the target
+// can re-stack the first +4 from the challenge screen, which starts an
+// accumulating pile (base +4 + re-stack) that can no longer be challenged.
+func TestStack_ReStackFromChallenge_StartsNonChallengeablePile(t *testing.T) {
+	g := challengeGame(t)
+	red := ColorRed
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4b", ChosenColor: &red}); err != nil {
+		t.Fatalf("p1 re-stacks +4 from challenge: %v", err)
+	}
+	if g.Phase != PhaseStack || g.CurrentIndex != 2 {
+		t.Fatalf("phase=%s current=%d, want stack/2", g.Phase, g.CurrentIndex)
+	}
+	if g.stackCredits != 8 { // original +4 (4) + re-stacked +4 (4)
+		t.Fatalf("credits = %d, want 8", g.stackCredits)
+	}
+	if g.stackChallengeAvailable() {
+		t.Fatal("once the pile is stacking, no challenge may be available")
+	}
+	v := g.BuildViewFor("p2")
+	if v.Stack == nil || v.Stack.CanChallenge {
+		t.Fatalf("p2 stack view = %+v, want can_challenge=false", v.Stack)
+	}
+	if _, err := g.Apply("p2", Action{Type: ActionChallengeStack}); err == nil {
+		t.Fatal("challenge_stack during the accumulated pile should be rejected")
+	}
+}
+
+// TestStack_RejectedChallengeLeavesPileIntact verifies an attempted challenge
+// against a re-stacked pile does not drain or alter it: the penalized player may
+// only re-stack or accept.
+func TestStack_RejectedChallengeLeavesPileIntact(t *testing.T) {
+	g := challengeGame(t)
+	red := ColorRed
+	_, _ = g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4b", ChosenColor: &red}) // PhaseStack, p2 owes 8
 	creditsBefore := g.stackCredits
-	handBefore := len(g.Players[1].Hand)
-	if _, err := g.Apply("p1", Action{Type: ActionChallengeStack}); err == nil {
+	handBefore := len(g.Players[2].Hand)
+	if _, err := g.Apply("p2", Action{Type: ActionChallengeStack}); err == nil {
 		t.Fatal("challenge_stack must be rejected during stacking")
 	}
 	if g.stackCredits != creditsBefore {
 		t.Fatalf("credits changed on rejected challenge: %d -> %d", creditsBefore, g.stackCredits)
 	}
-	if len(g.Players[1].Hand) != handBefore {
+	if len(g.Players[2].Hand) != handBefore {
 		t.Fatalf("challenger hand changed on rejected challenge")
 	}
-	if g.Phase != PhaseStack || g.CurrentIndex != 1 {
-		t.Fatalf("phase=%s current=%d, want unchanged stack/1", g.Phase, g.CurrentIndex)
+	if g.Phase != PhaseStack || g.CurrentIndex != 2 {
+		t.Fatalf("phase=%s current=%d, want unchanged stack/2", g.Phase, g.CurrentIndex)
 	}
 }
 
-// TestStack_Challenge_NotAvailableForAnyPile builds several pile compositions
-// (mixed +2/+4 and pure +4) and asserts a challenge is never available once the
-// penalty is stacking — the only options are re-stack or accept.
-func TestStack_Challenge_NotAvailableForAnyPile(t *testing.T) {
+// TestStack_NotChallengeableForAnyPile builds several re-stacked pile
+// compositions and asserts a challenge is never available once the penalty is an
+// accumulating pile — the only options are re-stack or accept.
+func TestStack_NotChallengeableForAnyPile(t *testing.T) {
 	cases := []struct {
-		name string
-		// build plays a sequence of card IDs onto the pile (each with a chosen
-		// color where needed) and returns the current player's options.
+		name  string
 		setup func(*testing.T) *Game
 	}{
-		{"single +4", func(t *testing.T) *Game { return combinedStackGame(t) }},
-		{"+2 then +4", func(t *testing.T) *Game {
+		{"base +4 then +2", func(t *testing.T) *Game { return challengeGame(t) }},
+		{"base +4 then +4", func(t *testing.T) *Game {
 			g := mkGame(
 				[][]Card{
-					{tcard("d2a", ColorRed, RankDrawTwo), tcard("x0", ColorRed, RankOne)},
-					{tcard("w4", ColorWild, RankWildDrawFour), tcard("x1", ColorGreen, RankTwo)},
+					{tcard("w4", ColorWild, RankWildDrawFour), tcard("a", ColorRed, RankOne)},
+					{tcard("w4b", ColorWild, RankWildDrawFour), tcard("b", ColorGreen, RankTwo)},
 					{tcard("c", ColorYellow, RankThree)},
 					{tcard("d", ColorBlue, RankFour)},
 				},
@@ -94,39 +126,14 @@ func TestStack_Challenge_NotAvailableForAnyPile(t *testing.T) {
 					tcard("q5", ColorGreen, RankFive), tcard("q6", ColorRed, RankSix)},
 				tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
 			)
-			g.Config.HouseRules.MixedStacking = true
-			g.Config.Cards.ChallengeDrawFour = true
-			if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}); err != nil {
-				t.Fatalf("p0 +2: %v", err)
-			}
-			red := ColorRed
-			if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
-				t.Fatalf("p1 +4: %v", err)
-			}
-			return g
-		}},
-		{"two +4s", func(t *testing.T) *Game {
-			g := mkGame(
-				[][]Card{
-					{tcard("w4a", ColorWild, RankWildDrawFour), tcard("x0", ColorRed, RankOne)},
-					{tcard("w4b", ColorWild, RankWildDrawFour), tcard("x1", ColorGreen, RankTwo)},
-					{tcard("c", ColorYellow, RankThree)},
-					{tcard("d", ColorBlue, RankFour)},
-				},
-				[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
-					tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour),
-					tcard("q5", ColorGreen, RankFive), tcard("q6", ColorRed, RankSix),
-					tcard("q7", ColorGreen, RankSeven), tcard("q8", ColorRed, RankEight)},
-				tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
-			)
 			g.Config.HouseRules.StackDrawFour = true
 			g.Config.Cards.ChallengeDrawFour = true
 			red := ColorRed
-			if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4a", ChosenColor: &red}); err != nil {
+			if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
 				t.Fatalf("p0 +4: %v", err)
 			}
 			if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4b", ChosenColor: &red}); err != nil {
-				t.Fatalf("p1 +4: %v", err)
+				t.Fatalf("p1 re-stacks +4: %v", err)
 			}
 			if g.Phase != PhaseStack {
 				t.Fatalf("phase = %s, want stack", g.Phase)
@@ -158,4 +165,27 @@ func (r *Result) eventsContain(t EventType) (bool, bool) {
 		}
 	}
 	return false, false
+}
+
+// TestStack_FirstFour_AcceptDrawsFourNoPile verifies that in the combined
+// stacking + challenge mode the target can simply accept the first +4, which
+// draws 4 and leaves no stack pile behind (stacking only begins on an actual
+// re-stack).
+func TestStack_FirstFour_AcceptDrawsFourNoPile(t *testing.T) {
+	g := challengeGame(t)
+	before := len(g.Players[1].Hand)
+	res, err := g.Apply("p1", Action{Type: ActionAcceptFour})
+	if err != nil {
+		t.Fatalf("p1 accepts +4: %v", err)
+	}
+	if got := len(g.Players[1].Hand) - before; got != 4 {
+		t.Fatalf("p1 drew %d cards, want 4", got)
+	}
+	if g.Phase == PhaseStack || g.Phase == PhaseChallenge {
+		t.Fatalf("phase = %s, want a normal turn after accepting", g.Phase)
+	}
+	if g.stackCredits != 0 || len(g.stackPile) != 0 {
+		t.Fatalf("no stack pile should remain after accepting, credits=%d pile=%d", g.stackCredits, len(g.stackPile))
+	}
+	_ = res
 }

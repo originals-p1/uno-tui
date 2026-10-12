@@ -102,9 +102,11 @@ type Game struct {
 	stackCredits int
 	stackRank    Rank // rank of the most recent card added to the pile
 	stackPile    []stackPileEntry
-	// The fields below were used by the combined stacking+challenge rule. That
-	// rule is now disabled (stacking and challenge are mutually exclusive), so
-	// they are inert and kept only for backward-compatible state layout.
+	// The fields below belong to the legacy combined stacking+challenge rule.
+	// Under the current design (rule.md R23) the FIRST +4 is challengeable in
+	// PhaseChallenge and stacking only begins on a re-stack, after which the pile
+	// is never challengeable — so these fields are inert and kept only for
+	// backward-compatible state layout / serialization.
 	stackResolverID       string
 	stackResolverViolated bool
 	stackChallengeUsed    bool

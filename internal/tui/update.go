@@ -223,6 +223,22 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 		case "a":
 			return m, actCmd(ActAcceptFour)
 		}
+		// Combined stacking + challenge: the first +4 may be re-stacked with a
+		// +2/+4 (starting an accumulating, non-challengeable pile). Route the
+		// same hand-selection hotkeys used in the stack phase.
+		switch k {
+		case "up", "k":
+			nm := m
+			nm.moveHandSel(-1)
+			return nm, nil
+		case "down", "j":
+			nm := m
+			nm.moveHandSel(1)
+			return nm, nil
+		case "enter":
+			return m.playHandAt(m.handSel)
+		}
+		return m.onTurnNumber(k)
 	case ModeStack:
 		// During a stacking penalty you may play a +2/+4 to keep stacking or
 		// accept with "a". The +4 challenge is disabled while stacking, but we
