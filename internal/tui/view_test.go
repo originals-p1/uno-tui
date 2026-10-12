@@ -207,7 +207,7 @@ func TestView_Challenge(t *testing.T) {
 	if strings.Contains(out, "之前出过 +4") {
 		t.Fatalf("challenge copy is misleading about the criterion: %q", out)
 	}
-	if !strings.Contains(out, "判定颜色") || !strings.Contains(out, "握有") {
+	if !strings.Contains(out, "判定色") || !strings.Contains(out, "违规") {
 		t.Fatalf("challenge copy should explain the judgment color criterion: %q", out)
 	}
 }
@@ -220,7 +220,7 @@ func TestView_ChallengeShowsTriggerColor(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: snap})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "红") || !strings.Contains(out, "判定颜色") || !strings.Contains(out, "【红】") {
+	if !strings.Contains(out, "红") || !strings.Contains(out, "判定色") || !strings.Contains(out, "【红】") {
 		t.Fatalf("challenge view should show the judgment (trigger) color: %q", out)
 	}
 }

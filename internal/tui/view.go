@@ -264,11 +264,8 @@ func (m Model) renderChallenge(o RenderOpts) string {
 	if trigger == "" {
 		colZh = "未知"
 	}
-	b.WriteString("判定颜色（出 +4 前的桌面颜色）：【" + colZh + "】\n")
-	b.WriteString("你被罚摸 4 张。挑战只问一件事：他出 +4 那一刻，手里是否还握着【" + colZh + "】色的牌？\n")
-	b.WriteString("（握有 = 违规 → 他摸 4、你继续；没握 = 清白 → 你摸 6、跳过。）\n")
-	b.WriteString("（+4 新选的颜色只决定之后的跟色，与本次挑战无关。）\n\n")
-	b.WriteString("  (c) 挑战 —— 依上判定\n")
+	b.WriteString("判定色（出 +4 前的桌面颜色）：【" + colZh + "】—— 他当时手上若有【" + colZh + "】即违规\n\n")
+	b.WriteString("  (c) 挑战 —— 违规：他摸 4、你继续 / 清白：你摸 6、跳过\n")
 	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
 	return b.String()
 }
