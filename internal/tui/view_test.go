@@ -1895,3 +1895,14 @@ func TestView_RulesShowsEveryEnabledField(t *testing.T) {
 		}
 	}
 }
+
+// TestView_RequestsAltScreen guards the Windows flicker fix: the TUI must draw
+// into the alternate screen buffer (full-window) rather than the inline
+// renderer that rewrites the whole screen every frame on Windows.
+func TestView_RequestsAltScreen(t *testing.T) {
+	m := Model{}
+	v := m.View()
+	if !v.AltScreen {
+		t.Fatal("View() must set AltScreen=true to use the alternate screen buffer")
+	}
+}

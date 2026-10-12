@@ -135,6 +135,9 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 // blocks until the user quits and then returns.
 func runInteractive(c *client.Client, name string) error {
 	m := newAppModel(c, name)
+	// Full-screen TUI: the model's View requests the alternate screen buffer
+	// (see View()) so the UI draws cleanly instead of the inline renderer
+	// rewriting the whole screen every frame.
 	p := tea.NewProgram(m)
 	c.OnSnapshot = func(v *game.GameView) { p.Send(tui.SnapshotMsg{View: v}) }
 	c.OnError = func(code, message string) { p.Send(tui.ErrorMsg{Code: code, Message: message}) }

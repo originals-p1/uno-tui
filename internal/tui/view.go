@@ -23,7 +23,13 @@ func defaultRenderOpts() RenderOpts {
 
 // View implements tea.Model.
 func (m Model) View() tea.View {
-	return tea.NewView(m.render(defaultRenderOpts()))
+	// Full-screen: draw into the alternate screen buffer. Without it the inline
+	// renderer rewrites the whole screen every frame, which on Windows (cmd /
+	// legacy conhost) shows as constant reflushing and ghosted stacked copies
+	// ("multiple terminals"). AltScreen gives a clean full-window buffer.
+	v := tea.NewView(m.render(defaultRenderOpts()))
+	v.AltScreen = true
+	return v
 }
 
 // render produces the full screen for the current state.
