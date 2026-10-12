@@ -241,3 +241,28 @@ func TestServerNetpipe_CloseOnDisconnect(t *testing.T) {
 		t.Fatalf("close: %v", err)
 	}
 }
+
+// TestBuildRequest_StackActions verifies the server's wire router maps the
+// accept_stack / challenge_stack messages to the matching engine actions, which
+// was previously missing so these actions never reached the game.
+func TestBuildRequest_StackActions(t *testing.T) {
+	s := NewServer(DefaultConfig(), NewRealClock(), nil)
+	t.Cleanup(s.Close)
+	cs := &connState{sessID: "sess"}
+	exp := uint64(7)
+
+	msg := &protocol.Message{RequestID: "r1", ExpectedRevision: &exp, Type: protocol.TypeAcceptStack}
+	req := s.buildRequest(cs, msg, &protocol.Empty{})
+	if req == nil || req.Action.Type != game.ActionAcceptStack {
+		t.Fatalf("accept_stack mapped wrong: %+v", req)
+	}
+	if req.SessionID != "sess" || *req.Expected != 7 {
+		t.Fatalf("session/expected not carried: %+v", req)
+	}
+
+	msg2 := &protocol.Message{RequestID: "r2", ExpectedRevision: &exp, Type: protocol.TypeChallengeStack}
+	req2 := s.buildRequest(cs, msg2, &protocol.Empty{})
+	if req2 == nil || req2.Action.Type != game.ActionChallengeStack {
+		t.Fatalf("challenge_stack mapped wrong: %+v", req2)
+	}
+}

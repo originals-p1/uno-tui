@@ -268,6 +268,10 @@ func (c *Client) SendAction(a game.Action, expected uint64) (*Response, error) {
 		typ = protocol.TypeAcceptFour
 	case game.ActionChallengeFour:
 		typ = protocol.TypeChallengeFour
+	case game.ActionAcceptStack:
+		typ = protocol.TypeAcceptStack
+	case game.ActionChallengeStack:
+		typ = protocol.TypeChallengeStack
 	default:
 		return nil, errors.New("unsupported action")
 	}

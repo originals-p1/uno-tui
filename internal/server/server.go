@@ -209,7 +209,8 @@ func (s *Server) handleMessage(cs *connState, msg *protocol.Message, payload int
 	case protocol.TypeReady, protocol.TypeStartGame, protocol.TypeLeave, protocol.TypeRematch, protocol.TypeAdvanceRound:
 		return s.handleRoomAction(cs, msg, payload)
 	case protocol.TypePlayCard, protocol.TypeDrawCard, protocol.TypePlayDrawnCard, protocol.TypePassDrawnCard,
-		protocol.TypeAcceptFour, protocol.TypeChallengeFour:
+		protocol.TypeAcceptFour, protocol.TypeChallengeFour,
+		protocol.TypeAcceptStack, protocol.TypeChallengeStack:
 		return s.handleRoomAction(cs, msg, payload)
 	case protocol.TypeUpdateConfig:
 		return s.handleRoomAction(cs, msg, payload)
@@ -336,6 +337,10 @@ func (s *Server) buildRequest(cs *connState, msg *protocol.Message, payload inte
 		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionAcceptFour}}
 	case protocol.TypeChallengeFour:
 		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionChallengeFour}}
+	case protocol.TypeAcceptStack:
+		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionAcceptStack}}
+	case protocol.TypeChallengeStack:
+		return &Request{Kind: KindPlayCard, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision, Action: game.Action{Type: game.ActionChallengeStack}}
 	case protocol.TypeUpdateConfig:
 		p := payload.(*protocol.UpdateConfig)
 		return &Request{Kind: KindUpdateConfig, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision,

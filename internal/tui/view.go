@@ -972,7 +972,12 @@ func (m Model) renderFooter(o RenderOpts) string {
 	case ModeChallenge:
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
 	case ModeStack:
-		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 c=挑战+4(可) h=帮助 q=退出"
+		// Only advertise the +4-challenge key when the most recent +4 is actually
+		// challengeable (rule.md R22); a pure +2 pile has no challenge.
+		if m.Snap != nil && m.Snap.Stack != nil && m.Snap.Stack.CanChallenge {
+			return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 c=挑战+4(可) h=帮助 q=退出"
+		}
+		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 h=帮助 q=退出"
 	case ModeRoundOver:
 		return "按键：c=开始下一局   (l) 离开房间   h=帮助"
 	case ModeRules:

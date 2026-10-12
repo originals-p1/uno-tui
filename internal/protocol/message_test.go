@@ -287,3 +287,41 @@ func mustJSONStr(v interface{}) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+// TestDecode_StackActions verifies accept_stack / challenge_stack requests
+// decode as empty-payload room actions (the wire path that was previously
+// missing for the stacking accept/challenge keys).
+func TestDecode_StackActions(t *testing.T) {
+	for _, typ := range []string{TypeAcceptStack, TypeChallengeStack} {
+		js := `{"protocol_version":1,"type":"` + typ + `","request_id":"r1","expected_revision":3}`
+		_, payload, err := decodeStr(t, js)
+		if err != nil {
+			t.Fatalf("%s decode: %v", typ, err)
+		}
+		if _, ok := payload.(*Empty); !ok {
+			t.Fatalf("%s: payload = %T, want *Empty", typ, payload)
+		}
+	}
+}
+
+// TestDecode_StackActions_ExplicitEmpty also verifies an explicit empty payload
+// decodes for the stack actions.
+func TestDecode_StackActions_ExplicitEmpty(t *testing.T) {
+	for _, typ := range []string{TypeAcceptStack, TypeChallengeStack} {
+		js := `{"protocol_version":1,"type":"` + typ + `","request_id":"r1","expected_revision":3}`
+		_, payload, err := decodeStr(t, js)
+		if err != nil {
+			t.Fatalf("%s decode: %v", typ, err)
+		}
+		if _, ok := payload.(*Empty); !ok {
+			t.Fatalf("%s: payload = %T, want *Empty", typ, payload)
+		}
+	}
+	// Missing payload fields should still be fine (empty actions).
+	for _, typ := range []string{TypeAcceptStack, TypeChallengeStack} {
+		js := `{"protocol_version":1,"type":"` + typ + `","request_id":"r1","expected_revision":3,"payload":{}}`
+		if _, _, err := decodeStr(t, js); err != nil {
+			t.Fatalf("%s with explicit {} payload: %v", typ, err)
+		}
+	}
+}

@@ -203,3 +203,28 @@ func TestClient_UpdateConfigAndRelay(t *testing.T) {
 	host.Close()
 	guest.Close()
 }
+
+// TestClient_SendAction_StackActions verifies the client can transmit the
+// stacking accept/challenge actions over the wire (it previously returned
+// "unsupported action" locally and never sent them). The server replies with a
+// normal error outcome because the game is not in a stack phase, but the key
+// regression is that SendAction itself no longer fails.
+func TestClient_SendAction_StackActions(t *testing.T) {
+	// Build a client with a fake transport so Send() runs without a real server.
+	c := &Client{}
+
+	_, err := c.SendAction(game.Action{Type: game.ActionAcceptStack}, 0)
+	if err == nil {
+		t.Fatal("expected an error because there is no connection")
+	}
+	if err != nil && err.Error() == "unsupported action" {
+		t.Fatal("SendAction(AcceptStack) must be supported, got unsupported action")
+	}
+	_, err = c.SendAction(game.Action{Type: game.ActionChallengeStack}, 0)
+	if err == nil {
+		t.Fatal("expected an error because there is no connection")
+	}
+	if err != nil && err.Error() == "unsupported action" {
+		t.Fatal("SendAction(ChallengeStack) must be supported, got unsupported action")
+	}
+}

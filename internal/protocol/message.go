@@ -46,6 +46,8 @@ const (
 	TypePassDrawnCard  = "pass_drawn_card"
 	TypeAcceptFour     = "accept_four"
 	TypeChallengeFour  = "challenge_four"
+	TypeAcceptStack    = "accept_stack"
+	TypeChallengeStack = "challenge_stack"
 	TypeLeave          = "leave"
 	TypeRematch        = "rematch"
 	TypeUpdateConfig   = "update_config"
@@ -180,7 +182,8 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 		p, err := decodeObject(m.Payload, func(p *Ready) error { return nil })
 		return &m, p, err
 	case TypeStartGame, TypeDrawCard, TypePassDrawnCard, TypeLeave, TypeRematch,
-		TypeAcceptFour, TypeChallengeFour, TypeAdvanceRound:
+		TypeAcceptFour, TypeChallengeFour, TypeAdvanceRound,
+		TypeAcceptStack, TypeChallengeStack:
 		if err := requireRequestAndRev(&m); err != nil {
 			return nil, nil, err
 		}
