@@ -170,3 +170,76 @@ func TestRoom_AdvanceRound_RejectedOutsideRoundOver(t *testing.T) {
 		t.Fatalf("advance_round must be rejected outside the round-over pause: %+v", out)
 	}
 }
+
+// TestRoom_ScoreMode_MultiRoundAccumulates plays two rounds in a SCORE match and
+// verifies the cumulative scores (and per-round deltas) are exactly right:
+// round 1 p0 wins over p1's red four (+4 / -4); round 2 p0 wins over p1's
+// {red two, green eight} worth 10 (+10 / -10). The match stays zero-sum.
+func TestRoom_ScoreMode_MultiRoundAccumulates(t *testing.T) {
+	r := scoreRoom(t, 500)
+
+	// ---- Round 1 ----
+	out := r.Submit(NewRequest(KindPlayCard, "s0", "rr1", exp(0), game.Action{
+		Type: game.ActionPlayCard, CardID: "a1",
+	}))
+	if !out.OK() {
+		t.Fatalf("round 1 win: %+v", out)
+	}
+	if r.scores["p0"] != 4 || r.scores["p1"] != -4 {
+		t.Fatalf("after round 1 scores p0=%d p1=%d, want 4 / -4", r.scores["p0"], r.scores["p1"])
+	}
+	if !out.Commit.Requester.RoundOver {
+		t.Fatal("round 1 should pause awaiting advance")
+	}
+
+	// ---- Advance to round 2 (scores carried forward) ----
+	adv := r.Submit(NewRequest(KindAdvanceRound, "s1", "adv1", exp(r.revision), game.Action{}))
+	if !adv.OK() {
+		t.Fatalf("advance round: %+v", adv)
+	}
+	if adv.Commit.Requester.RoundNumber != 2 {
+		t.Fatalf("round number = %d, want 2", adv.Commit.Requester.RoundNumber)
+	}
+	if r.scores["p0"] != 4 || r.scores["p1"] != -4 {
+		t.Fatalf("scores must carry across rounds: p0=%d p1=%d", r.scores["p0"], r.scores["p1"])
+	}
+
+	// ---- Round 2: p0 wins over p1's {red two, green eight} = 10 points ----
+	g := r.game
+	g.Players[0].Hand = []game.Card{{ID: "rd8", Color: game.ColorRed, Rank: game.RankEight}}
+	g.Players[1].Hand = []game.Card{
+		{ID: "rt2", Color: game.ColorRed, Rank: game.RankTwo},
+		{ID: "gg8", Color: game.ColorGreen, Rank: game.RankEight},
+	}
+	g.DiscardPile = []game.Card{{ID: "top", Color: game.ColorRed, Rank: game.RankNine}}
+	g.ActiveColor = game.ColorRed
+	g.CurrentIndex = 0
+	g.Direction = 1
+	g.Phase = game.PhaseTurn
+
+	out2 := r.Submit(NewRequest(KindPlayCard, "s0", "rr2", exp(r.revision), game.Action{
+		Type: game.ActionPlayCard, CardID: "rd8",
+	}))
+	if !out2.OK() {
+		t.Fatalf("round 2 win: %+v", out2)
+	}
+	v2 := out2.Commit.Requester
+	// Round 2 winner gains 10 (p1's 2+8); losers deducted their own hand.
+	if v2.RoundResult.Points != 10 {
+		t.Fatalf("round 2 points = %d, want 10", v2.RoundResult.Points)
+	}
+	if v2.RoundResult.Deltas["p0"] != 10 || v2.RoundResult.Deltas["p1"] != -10 {
+		t.Fatalf("round 2 deltas = %+v, want p0 +10 / p1 -10", v2.RoundResult.Deltas)
+	}
+	if v2.RoundNumber != 2 {
+		t.Fatalf("round number = %d, want 2", v2.RoundNumber)
+	}
+	// Cumulative scores after two rounds.
+	if v2.Scores["p0"] != 14 || v2.Scores["p1"] != -14 {
+		t.Fatalf("cumulative scores p0=%d p1=%d, want 14 / -14", v2.Scores["p0"], v2.Scores["p1"])
+	}
+	if v2.MatchOver {
+		t.Fatalf("match should not be over at p0=14 vs target 500")
+	}
+}
+

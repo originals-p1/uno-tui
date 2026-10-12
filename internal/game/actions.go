@@ -47,5 +47,5 @@ type LegalMoves struct {
 	PlayableIDs       []string // hand card IDs the player may currently play
 	CanDraw           bool     // true during a normal own turn
 	CanAcceptStack    bool     // true during a stacking phase (accept accumulated penalty, R19-R21)
-	CanChallengeStack bool     // true during a stacking phase when the most recent +4 can be challenged (combined rule)
+	CanChallengeStack bool     // true during a stacking phase when the initial +4 can be challenged (combined rule R23)
 }

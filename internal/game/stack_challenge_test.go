@@ -175,6 +175,138 @@ func TestStack_Challenge_ViolatedMidPileReduces(t *testing.T) {
 	}
 }
 
+// TestStack_Challenge_OnlyInitialFour_Latched verifies that with two +4s in the
+// pile the challengeable resolver is the FIRST (+4) one, never the most recent.
+func TestStack_Challenge_OnlyInitialFour_Latched(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("w4a", ColorWild, RankWildDrawFour), tcard("held", ColorRed, RankOne)}, // p0 initial +4 (violated: holds red)
+			{tcard("w4b", ColorWild, RankWildDrawFour), tcard("x", ColorGreen, RankTwo)},  // p1 later +4
+			{tcard("c", ColorYellow, RankThree)},
+			{tcard("d", ColorBlue, RankFive)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
+			tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour),
+			tcard("q5", ColorGreen, RankFive), tcard("q6", ColorRed, RankSix),
+			tcard("q7", ColorGreen, RankSeven), tcard("q8", ColorRed, RankEight)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawFour = true
+	g.Config.Cards.ChallengeDrawFour = true
+	red := ColorRed
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4a", ChosenColor: &red}); err != nil {
+		t.Fatalf("p0 +4: %v", err)
+	}
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4b", ChosenColor: &red}); err != nil {
+		t.Fatalf("p1 +4: %v", err)
+	}
+	if g.stackCredits != 8 {
+		t.Fatalf("credits = %d, want 8", g.stackCredits)
+	}
+	if g.CurrentIndex != 2 {
+		t.Fatalf("current = %d, want 2", g.CurrentIndex)
+	}
+	// The initial +4 (p0), not the latest (p1), is the challengeable resolver.
+	if g.stackResolverID != "p0" {
+		t.Fatalf("stackResolverID = %q, want p0 (initial +4)", g.stackResolverID)
+	}
+	if !g.stackChallengeAvailable() {
+		t.Fatal("double +4 pile should be challengeable (initial +4 pending)")
+	}
+}
+
+// TestStack_Challenge_InitialViolated_RemainingFourNotChallengeable: after the
+// initial +4 (violated) is rolled back, a later +4 still in the pile must NOT
+// offer another challenge (only the initial one can be challenged, once).
+func TestStack_Challenge_InitialViolated_RemainingFourNotChallengeable(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("w4a", ColorWild, RankWildDrawFour), tcard("held", ColorRed, RankOne)}, // p0 initial +4 (violated)
+			{tcard("w4b", ColorWild, RankWildDrawFour), tcard("x", ColorGreen, RankTwo)},  // p1 later +4 (clean)
+			{tcard("c", ColorYellow, RankThree)},
+			{tcard("d", ColorBlue, RankFive)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
+			tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour),
+			tcard("q5", ColorGreen, RankFive), tcard("q6", ColorRed, RankSix),
+			tcard("q7", ColorGreen, RankSeven), tcard("q8", ColorRed, RankEight)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawFour = true
+	g.Config.Cards.ChallengeDrawFour = true
+	red := ColorRed
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "w4a", ChosenColor: &red}); err != nil {
+		t.Fatalf("p0 +4: %v", err)
+	}
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4b", ChosenColor: &red}); err != nil {
+		t.Fatalf("p1 +4: %v", err)
+	}
+	beforeResolver := len(g.Players[0].Hand)
+	if _, err := g.Apply("p2", Action{Type: ActionChallengeStack}); err != nil {
+		t.Fatalf("p2 challenges initial +4: %v", err)
+	}
+	// p0 (initial, violated) drew 4; pile keeps only p1's +4 (credits 4).
+	if len(g.Players[0].Hand) != beforeResolver+4 {
+		t.Fatalf("p0 hand = %d, want %d", len(g.Players[0].Hand), beforeResolver+4)
+	}
+	if g.stackCredits != 4 || len(g.stackPile) != 1 {
+		t.Fatalf("credits=%d pile=%d, want 4/1", g.stackCredits, len(g.stackPile))
+	}
+	if g.stackPile[0].playerID != "p1" {
+		t.Fatalf("remaining pile resolver = %q, want p1", g.stackPile[0].playerID)
+	}
+	// p2 continues in PhaseStack facing the remaining +4, but NO second challenge.
+	if g.Phase != PhaseStack || g.CurrentIndex != 2 {
+		t.Fatalf("phase=%s current=%d, want stack/2", g.Phase, g.CurrentIndex)
+	}
+	if g.stackChallengeAvailable() {
+		t.Fatal("remaining +4 must NOT be challengeable: only the initial +4 gets one challenge")
+	}
+	if g.LegalMoves("p2").CanChallengeStack {
+		t.Fatal("LegalMoves must not expose challenge on the remaining +4")
+	}
+}
+
+// TestStack_Challenge_InitialUnclearWithLaterFourOnTop: even when the top card is
+// a +2 (not +4), the pending initial +4 keeps the challenge available.
+func TestStack_Challenge_InitialUnclearWithLaterFourOnTop(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2a", ColorRed, RankDrawTwo), tcard("a", ColorRed, RankOne)},   // p0 +2
+			{tcard("w4", ColorWild, RankWildDrawFour), tcard("held", ColorRed, RankOne)}, // p1 +4 (violated)
+			{tcard("d2b", ColorRed, RankDrawTwo), tcard("c", ColorYellow, RankThree)},    // p2 +2 on top
+			{tcard("d", ColorBlue, RankFive), tcard("d3", ColorBlue, RankSix)},
+		},
+		[]Card{tcard("q1", ColorGreen, RankOne), tcard("q2", ColorYellow, RankTwo),
+			tcard("q3", ColorRed, RankThree), tcard("q4", ColorBlue, RankFour),
+			tcard("q5", ColorGreen, RankFive), tcard("q6", ColorRed, RankSix),
+			tcard("q7", ColorGreen, RankSeven), tcard("q8", ColorRed, RankEight)},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.MixedStacking = true
+	g.Config.Cards.ChallengeDrawFour = true
+	red := ColorRed
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2a"}); err != nil {
+		t.Fatalf("p0 +2: %v", err)
+	}
+	if _, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &red}); err != nil {
+		t.Fatalf("p1 +4: %v", err)
+	}
+	if _, err := g.Apply("p2", Action{Type: ActionPlayCard, CardID: "d2b"}); err != nil {
+		t.Fatalf("p2 +2: %v", err)
+	}
+	if g.stackRank != RankDrawTwo {
+		t.Fatalf("stackRank = %q, want draw_two (top card)", g.stackRank)
+	}
+	// Top is +2, yet the initial +4 (p1) is still pending and challengeable.
+	if g.stackResolverID != "p1" {
+		t.Fatalf("stackResolverID = %q, want p1", g.stackResolverID)
+	}
+	if !g.stackChallengeAvailable() {
+		t.Fatal("initial +4 must remain challengeable even with a +2 on top")
+	}
+}
+
 func (r *Result) eventsContain(t EventType) (bool, bool) {
 	for _, e := range r.Events {
 		if e.Type == t {

@@ -605,10 +605,10 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 }
 
 // stackPileEntry records one contributed card in an in-flight stacking pile.
-// It drives the combined stacking+challenge rule (rule.md R22): when the most
-// recent pile card is a +4 the current target may challenge that +4. If the +4
-// player held the active color (violated), the entry is rolled back and the
-// player draws 4; otherwise the challenger draws the whole pile.
+// It drives the combined stacking+challenge rule (rule.md R23): only the FIRST
+// +4 played onto the pile can be challenged. If that +4 player held the active
+// color (violated), the entry is rolled back and the player draws 4; otherwise
+// the challenger draws the whole pile.
 type stackPileEntry struct {
 	playerID string
 	rank     Rank
@@ -616,7 +616,9 @@ type stackPileEntry struct {
 	violated bool // for a +4: did the player hold the active color at play time
 }
 
-// pushStack records a contributed card and refreshes the challenge head.
+// pushStack records a contributed card. The challengeable resolver is latched to
+// the FIRST +4 of the pile only; subsequently stacked +4s are treated as forced
+// responses and are never challengeable.
 func (g *Game) pushStack(pi int, rank Rank, credits int) {
 	entry := stackPileEntry{playerID: g.Players[pi].ID, rank: rank, credits: credits}
 	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
@@ -625,33 +627,25 @@ func (g *Game) pushStack(pi int, rank Rank, credits int) {
 	g.stackPile = append(g.stackPile, entry)
 	g.stackCredits += credits
 	g.stackRank = rank
-	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
+	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour &&
+		!g.stackChallengeUsed && g.stackResolverID == "" {
+		// Latch the initial +4 as the only challengeable one.
 		g.stackResolverID = entry.playerID
 		g.stackResolverViolated = entry.violated
-	} else {
-		g.stackResolverID = ""
-		g.stackResolverViolated = false
 	}
 }
 
-// recomputeStackHead refreshes stackRank and the +4 challenge head from the tail
-// of the pile (used after a violated +4 is rolled back).
+// recomputeStackHead refreshes stackRank from the tail of the pile (used after
+// a violated +4 is rolled back). It intentionally leaves the challengeable
+// initial-+4 resolver untouched: once the initial +4 exists, later +4s are not
+// challengeable even if they become the tail.
 func (g *Game) recomputeStackHead() {
 	if len(g.stackPile) == 0 {
 		g.stackRank = ""
-		g.stackResolverID = ""
-		g.stackResolverViolated = false
 		return
 	}
 	last := g.stackPile[len(g.stackPile)-1]
 	g.stackRank = last.rank
-	if last.rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
-		g.stackResolverID = last.playerID
-		g.stackResolverViolated = last.violated
-	} else {
-		g.stackResolverID = ""
-		g.stackResolverViolated = false
-	}
 }
 
 // clearStack resets all live stacking state.
@@ -661,12 +655,14 @@ func (g *Game) clearStack() {
 	g.stackPile = nil
 	g.stackResolverID = ""
 	g.stackResolverViolated = false
+	g.stackChallengeUsed = false
 }
 
 // stackChallengeAvailable reports whether the current target may challenge the
-// most recent +4 in the pile (combined stacking + challenge, rule.md R22).
+// initial (first) +4 in the pile (combined stacking + challenge, rule.md R23).
+// The initial +4 is challengeable exactly once per pile.
 func (g *Game) stackChallengeAvailable() bool {
-	return g.Config.Cards.ChallengeDrawFour && g.stackResolverID != ""
+	return g.Config.Cards.ChallengeDrawFour && !g.stackChallengeUsed && g.stackResolverID != ""
 }
 
 // beginStack enters PhaseStack, handing an accumulated draw penalty to the next
@@ -759,8 +755,9 @@ func (g *Game) applyAcceptStack(pi int) (*Result, error) {
 	return res, nil
 }
 
-// applyChallengeStack resolves a challenge against the most recent +4 in an
-// in-flight stacking pile (combined stacking + challenge rule, rule.md R22).
+// applyChallengeStack resolves a challenge against the initial (first) +4 in an
+// in-flight stacking pile (combined stacking + challenge rule, rule.md R23). Only
+// that initial +4 is challengeable, exactly once per pile.
 //   - If the +4 player held the active color (violated): that +4 is rolled back
 //     (credits -4), the player draws 4, and the challenger keeps the reduced pile
 //     (or continues on a clean board if the pile is emptied).
@@ -777,8 +774,9 @@ func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 	}
 	n := len(g.Players)
 	res := &Result{}
+	// The challenge always targets the FIRST +4 played onto the pile.
 	idx := -1
-	for i := len(g.stackPile) - 1; i >= 0; i-- {
+	for i := 0; i < len(g.stackPile); i++ {
 		if g.stackPile[i].rank == RankWildDrawFour {
 			idx = i
 			break
@@ -788,13 +786,14 @@ func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 		return nil, gErr(ErrCodeChallengeNotAllowed, "no +4 to challenge in this penalty")
 	}
 	last := g.stackPile[idx]
+	g.stackChallengeUsed = true
 	g.lastChallengeResult = &ChallengeResult{
 		ResolverPlayerID:   last.playerID,
 		ChallengerPlayerID: g.Players[pi].ID,
 	}
 	if last.violated {
-		// Resolver held the active color: nullify the +4, they draw 4, and the
-		// challenger carries on with the reduced pile.
+		// Resolver held the active color: nullify the initial +4, they draw 4,
+		// and the challenger carries on with the reduced pile.
 		resolverIdx := g.playerIndex(last.playerID)
 		if resolverIdx < 0 {
 			return nil, gErr(ErrCodeInternal, "stack resolver missing")
@@ -804,6 +803,9 @@ func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 		if g.stackCredits < 0 {
 			g.stackCredits = 0
 		}
+		// The initial +4 (the only challengeable one) has been resolved.
+		g.stackResolverID = ""
+		g.stackResolverViolated = false
 		drawn := g.drawCards(4)
 		g.Players[resolverIdx].Hand = append(g.Players[resolverIdx].Hand, drawn...)
 		g.updateUNO(resolverIdx)

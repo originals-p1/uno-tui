@@ -102,11 +102,13 @@ type Game struct {
 	stackCredits int
 	stackRank    Rank // rank of the most recent card added to the pile
 	stackPile    []stackPileEntry
-	// stackResolverID is the player of the most recent +4 in the pile, which the
-	// current target may challenge when challenge_draw_four is on. Empty when the
-	// pile's latest card is not a +4 (no challenge offered).
+	// stackResolverID is the player of the FIRST (initial) +4 played onto the
+	// pile, which is the only +4 the current target may challenge under the
+	// combined stacking+challenge rule. Empty when the pile has no pending
+	// initial +4 (no challenge offered).
 	stackResolverID       string
 	stackResolverViolated bool // that +4 player held the active color when played
+	stackChallengeUsed    bool // the pile's initial +4 has already been challenged
 }
 
 // NewGame builds a fresh game from the standard 108-card deck, dealing opening

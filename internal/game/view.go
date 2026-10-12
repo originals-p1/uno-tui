@@ -51,7 +51,7 @@ type ChallengeView struct {
 type StackView struct {
 	Credits      int  `json:"credits"`
 	YourDecision bool `json:"your_decision"` // true == it is your choice
-	CanChallenge bool `json:"can_challenge"` // most recent +4 can be challenged (combined rule R22)
+	CanChallenge bool `json:"can_challenge"` // initial +4 can be challenged (combined rule R23)
 }
 
 // ChallengeResult is a transient outcome banner describing how a +4 challenge
