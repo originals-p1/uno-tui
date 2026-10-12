@@ -36,27 +36,28 @@ func newProto(code, format string, args ...interface{}) *ProtocolError {
 
 // Message type names (readme §6.2 table).
 const (
-	TypeHello         = "hello"
-	TypeWelcome       = "welcome"
-	TypeReady         = "ready"
-	TypeStartGame     = "start_game"
+	TypeHello          = "hello"
+	TypeWelcome        = "welcome"
+	TypeReady          = "ready"
+	TypeStartGame      = "start_game"
 	TypePlayCard       = "play_card"
 	TypeDrawCard       = "draw_card"
 	TypePlayDrawnCard  = "play_drawn_card"
 	TypePassDrawnCard  = "pass_drawn_card"
 	TypeAcceptFour     = "accept_four"
 	TypeChallengeFour  = "challenge_four"
-	TypeLeave         = "leave"
-	TypeRematch       = "rematch"
-	TypeUpdateConfig  = "update_config"
+	TypeLeave          = "leave"
+	TypeRematch        = "rematch"
+	TypeUpdateConfig   = "update_config"
+	TypeAdvanceRound   = "advance_round"
 	TypeConfigSnapshot = "config_snapshot"
-	TypeRulesLocked   = "rules_locked"
-	TypeStateSnapshot = "state_snapshot"
-	TypeGameEvent     = "game_event"
-	TypeError         = "error"
-	TypeResponse      = "response"
-	TypePing          = "ping"
-	TypePong          = "pong"
+	TypeRulesLocked    = "rules_locked"
+	TypeStateSnapshot  = "state_snapshot"
+	TypeGameEvent      = "game_event"
+	TypeError          = "error"
+	TypeResponse       = "response"
+	TypePing           = "ping"
+	TypePong           = "pong"
 )
 
 // ChosenColor is the color chosen for a wild card (one of red/yellow/green/blue).
@@ -119,8 +120,8 @@ type Empty struct{}
 // UpdateConfig is an UPDATE_CONFIG request: the host submits a full new config
 // alongside the config version it believes is current (optimistic concurrency).
 type UpdateConfig struct {
-	ExpectedConfigVersion uint64          `json:"expected_config_version"`
-	Config                game.Config     `json:"config"`
+	ExpectedConfigVersion uint64      `json:"expected_config_version"`
+	Config                game.Config `json:"config"`
 }
 
 // ConfigSnapshot is a CONFIG_SNAPSHOT server->client message: the current rules
@@ -179,7 +180,7 @@ func Decode(raw []byte) (*Message, interface{}, error) {
 		p, err := decodeObject(m.Payload, func(p *Ready) error { return nil })
 		return &m, p, err
 	case TypeStartGame, TypeDrawCard, TypePassDrawnCard, TypeLeave, TypeRematch,
-		TypeAcceptFour, TypeChallengeFour:
+		TypeAcceptFour, TypeChallengeFour, TypeAdvanceRound:
 		if err := requireRequestAndRev(&m); err != nil {
 			return nil, nil, err
 		}

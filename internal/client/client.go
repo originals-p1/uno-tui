@@ -71,7 +71,7 @@ type Client struct {
 	OnEvent      func(typ string, rev uint64)
 	OnError      func(code, message string)
 	OnDisconnect func(err error)
-	OnConfig func(protocol.ConfigSnapshot)
+	OnConfig     func(protocol.ConfigSnapshot)
 }
 
 // NewClient returns a client with the given config.
@@ -310,6 +310,12 @@ func (c *Client) Leave(expected uint64) (*Response, error) {
 // Rematch returns a finished game back to a fresh lobby for another round.
 func (c *Client) Rematch(expected uint64) (*Response, error) {
 	return c.Send(protocol.TypeRematch, &expected, protocol.Empty{})
+}
+
+// AdvanceRound starts the next SCORE-mode round after the round-over pause (a
+// player pressed "c").
+func (c *Client) AdvanceRound(expected uint64) (*Response, error) {
+	return c.Send(protocol.TypeAdvanceRound, &expected, protocol.Empty{})
 }
 
 func (c *Client) send(m *protocol.Message) error {

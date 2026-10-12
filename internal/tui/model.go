@@ -17,6 +17,7 @@ const (
 	ModeFinished
 	ModeChallenge
 	ModeStack
+	ModeRoundOver
 	ModeRules
 	ModeConfigEdit
 	ModeHistory
@@ -108,6 +109,12 @@ func (m Model) mode() Mode {
 	}
 	if s.Phase == string(game.PhaseLobby) {
 		return ModeLobby
+	}
+	// SCORE-mode round-over pause: the round ended but the match continues; a
+	// player presses "c" to start the next round. Takes precedence over the
+	// generic finished screen (Score-mode match-over still goes to ModeFinished).
+	if s.RoundOver {
+		return ModeRoundOver
 	}
 	if s.WinnerPlayerID != "" || s.Phase == string(game.PhaseFinished) {
 		return ModeFinished

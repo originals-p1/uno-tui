@@ -246,6 +246,11 @@ func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
 			return m.playHandAt(m.handSel)
 		}
 		return m.onTurnNumber(k)
+	case ModeRoundOver:
+		// SCORE round finished: any player presses "c" to start the next round.
+		if k == "c" {
+			return m, actCmd(ActAdvanceRound)
+		}
 	case ModeRules:
 		if k == "e" && m.IsHost && !m.RulesLocked {
 			m.edit = true

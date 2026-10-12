@@ -55,6 +55,7 @@ const (
 	KindPassDrawnCard Kind = "pass_drawn_card"
 
 	KindUpdateConfig Kind = "update_config"
+	KindAdvanceRound Kind = "advance_round"
 )
 
 // Config carries the room's security and timing knobs (readme §9).
@@ -209,6 +210,10 @@ type Room struct {
 	matchWinner string
 	matchOver   bool
 	roundResult *game.RoundResult
+	// roundOver is set after a SCORE-mode round ends but before the match is
+	// over: the round's hands/scores are shown and the room waits for a player to
+	// press "c" (KindAdvanceRound) to start the next round (rule.md R28).
+	roundOver bool
 
 	caches map[string]*idemCache
 
@@ -447,6 +452,8 @@ func (r *Room) process(req *Request) *Outcome {
 		return r.processDisconnect(req)
 	case KindUpdateConfig:
 		return r.processUpdateConfig(req)
+	case KindAdvanceRound:
+		return r.processAdvanceRound(req)
 	default:
 		return r.processGameAction(req)
 	}
@@ -734,6 +741,27 @@ func (r *Room) processLeave(req *Request) *Outcome {
 // seated players can immediately start another round without quitting or
 // reconnecting (rule.md §16 "返回大厅/再开一局"). Any seated player may trigger
 // it, but only once the game has actually finished.
+// processAdvanceRound starts the next SCORE-mode round after a round-over pause
+// (rule.md R28). It is triggered by any seated player pressing "c" and is only
+// valid when the room is paused showing the previous round's result.
+func (r *Room) processAdvanceRound(req *Request) *Outcome {
+	playerID := r.sessionPlayer(req)
+	if playerID == "" {
+		return &Outcome{ErrCode: CodeInvalidSession, Message: "unauthenticated session"}
+	}
+	if !r.started || r.game == nil || !r.isScoreMode() || r.matchOver || !r.roundOver {
+		return &Outcome{ErrCode: CodeNotWaitingPhase, Message: "no round-over state to advance"}
+	}
+	r.startNextRound()
+	r.roundOver = false
+	out := &Outcome{Commit: &Commit{
+		Revision:  r.revision,
+		Requester: r.buildView(playerID),
+		Views:     r.buildViews(),
+	}}
+	return out
+}
+
 func (r *Room) processRematch(req *Request) *Outcome {
 	playerID := r.sessionPlayer(req)
 	if playerID == "" {
@@ -758,6 +786,7 @@ func (r *Room) processRematch(req *Request) *Outcome {
 	r.matchWinner = ""
 	r.matchOver = false
 	r.roundResult = nil
+	r.roundOver = false
 	r.revision++
 	return &Outcome{Commit: &Commit{
 		Revision:  r.revision,
@@ -897,18 +926,28 @@ func (r *Room) processGameAction(req *Request) *Outcome {
 			r.scores[p.ID] += d
 			deltas[p.ID] = d
 		}
+		hands := make(map[string][]game.CardView, len(r.game.Players))
+		for _, p := range r.game.Players {
+			for _, c := range p.Hand {
+				hands[p.ID] = append(hands[p.ID], c.View())
+			}
+		}
 		r.roundResult = &game.RoundResult{
 			RoundNumber:    r.roundNum,
 			WinnerPlayerID: winner,
 			Points:         res.RoundPoints,
 			Deltas:         deltas,
 			Scores:         copyScore(r.scores),
+			Hands:          hands,
 		}
 		if r.scores[winner] >= r.targetScore {
 			r.matchOver = true
+			r.roundOver = false
 			r.matchWinner = winner
 		} else {
-			r.startNextRound()
+			// Round ended but the match continues: pause here and show everyone's
+			// hands + scores; a player presses "c" to start the next round.
+			r.roundOver = true
 		}
 	}
 
@@ -1015,6 +1054,7 @@ func (r *Room) decorateView(v *game.GameView) {
 	v.MatchOver = r.matchOver
 	v.MatchWinnerPlayerID = r.matchWinner
 	v.RoundResult = r.roundResult
+	v.RoundOver = r.roundOver
 }
 
 // isScoreMode reports whether the room is running a SCORE-mode match.
@@ -1036,6 +1076,7 @@ func (r *Room) beginScorebook() {
 	r.matchWinner = ""
 	r.matchOver = false
 	r.roundResult = nil
+	r.roundOver = false
 }
 
 // startNextRound deals a fresh round and advances the round counter, carrying

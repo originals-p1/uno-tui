@@ -68,11 +68,12 @@ type ChallengeResult struct {
 // of the following round so clients can show "Player X earned N points" before
 // play resumes, and cleared as soon as a new in-round action lands.
 type RoundResult struct {
-	RoundNumber    int            `json:"round_number"`
-	WinnerPlayerID string         `json:"winner_player_id"`
-	Points         int            `json:"points"`
-	Deltas         map[string]int `json:"deltas"` // per-player change this round (winner +, others -)
-	Scores         map[string]int `json:"scores"`
+	RoundNumber    int                   `json:"round_number"`
+	WinnerPlayerID string                `json:"winner_player_id"`
+	Points         int                   `json:"points"`
+	Deltas         map[string]int        `json:"deltas"` // per-player change this round (winner +, others -)
+	Scores         map[string]int        `json:"scores"`
+	Hands          map[string][]CardView `json:"hands"` // each player's cards at round end
 }
 
 // GameView is the full personalized view of the table.
@@ -105,6 +106,30 @@ type GameView struct {
 	MatchOver           bool           `json:"match_over,omitempty"`
 	MatchWinnerPlayerID string         `json:"match_winner_player_id,omitempty"`
 	RoundResult         *RoundResult   `json:"round_result,omitempty"`
+	// RoundOver marks the pause after a SCORE-mode round ends (before the next):
+	// the previous round's hands/scores are shown and a player presses "c" to
+	// advance (rule.md R28).
+	RoundOver bool `json:"round_over,omitempty"`
+	// FinalHands holds every player's cards when the game is finished, so the
+	// end screen can show everyone's hand (single-round and SCORE match-over).
+	FinalHands map[string][]CardView `json:"final_hands,omitempty"`
+}
+
+// finalHands snapshots every player's remaining cards (used for the end-of-game
+// summary screen, rule.md §15). It is not secret at this point: the game is over.
+func (g *Game) finalHands() map[string][]CardView {
+	if g == nil {
+		return nil
+	}
+	out := make(map[string][]CardView, len(g.Players))
+	for _, p := range g.Players {
+		var cards []CardView
+		for _, c := range p.Hand {
+			cards = append(cards, c.View())
+		}
+		out[p.ID] = cards
+	}
+	return out
 }
 
 // BuildViewFor returns a personalized view for playerID. Different players
@@ -179,6 +204,9 @@ func (g *Game) BuildViewFor(playerID string) *GameView {
 	}
 	if g.EndReason != "" {
 		v.EndReason = g.EndReason
+	}
+	if g.Phase == PhaseFinished {
+		v.FinalHands = g.finalHands()
 	}
 	return v
 }

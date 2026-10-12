@@ -164,13 +164,31 @@ func TestHistory_BoundedLimit(t *testing.T) {
 }
 
 func TestBuildView_Finished(t *testing.T) {
-	g := mkGame([][]Card{{tcard("a1", ColorRed, RankOne)}}, nil, tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn)
+	g := mkGame(
+		[][]Card{
+			{tcard("a1", ColorRed, RankOne)},
+			{tcard("b1", ColorGreen, RankTwo), tcard("b2", ColorBlue, RankThree)},
+		},
+		nil, tcard("top", ColorRed, RankTwo), ColorRed, 1, 0, PhaseTurn,
+	)
 	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "a1"}); err != nil {
 		t.Fatalf("play: %v", err)
 	}
 	v := g.BuildViewFor("p0")
 	if v.Phase != string(PhaseFinished) || v.WinnerPlayerID != "p0" {
 		t.Fatalf("finished view = phase %s winner %s", v.Phase, v.WinnerPlayerID)
+	}
+	// Everyone's final hand is exposed on the finished view.
+	if len(v.FinalHands["p0"]) != 0 {
+		t.Fatalf("p0 (winner) final hand = %v, want empty", v.FinalHands["p0"])
+	}
+	if len(v.FinalHands["p1"]) != 2 || v.FinalHands["p1"][0].Color != ColorGreen {
+		t.Fatalf("p1 final hand = %v, want its 2 cards", v.FinalHands["p1"])
+	}
+	// The same final hands are shown to every player.
+	v1 := g.BuildViewFor("p1")
+	if len(v1.FinalHands["p1"]) != 2 {
+		t.Fatalf("p1's own finished view missing final hands: %+v", v1.FinalHands)
 	}
 }
 

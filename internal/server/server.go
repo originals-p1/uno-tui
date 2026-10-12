@@ -206,7 +206,7 @@ func (s *Server) handleMessage(cs *connState, msg *protocol.Message, payload int
 	case protocol.TypePong:
 		// liveness acknowledged; nothing else to do.
 		return true
-	case protocol.TypeReady, protocol.TypeStartGame, protocol.TypeLeave, protocol.TypeRematch:
+	case protocol.TypeReady, protocol.TypeStartGame, protocol.TypeLeave, protocol.TypeRematch, protocol.TypeAdvanceRound:
 		return s.handleRoomAction(cs, msg, payload)
 	case protocol.TypePlayCard, protocol.TypeDrawCard, protocol.TypePlayDrawnCard, protocol.TypePassDrawnCard,
 		protocol.TypeAcceptFour, protocol.TypeChallengeFour:
@@ -310,6 +310,8 @@ func (s *Server) buildRequest(cs *connState, msg *protocol.Message, payload inte
 		return &Request{Kind: KindLeave, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision}
 	case protocol.TypeRematch:
 		return &Request{Kind: KindRematch, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision}
+	case protocol.TypeAdvanceRound:
+		return &Request{Kind: KindAdvanceRound, SessionID: cs.sessID, RequestID: msg.RequestID, Expected: msg.ExpectedRevision}
 	case protocol.TypePlayCard:
 		p := payload.(*protocol.PlayCard)
 		a := game.Action{Type: game.ActionPlayCard, CardID: p.CardID}

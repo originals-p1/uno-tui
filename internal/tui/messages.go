@@ -53,6 +53,7 @@ const (
 	ActChallengeFour
 	ActAcceptStack
 	ActChallengeStack
+	ActAdvanceRound
 	ActApplyConfig
 )
 
@@ -94,6 +95,8 @@ func (k ActionKind) String() string {
 		return "accept_stack"
 	case ActChallengeStack:
 		return "challenge_stack"
+	case ActAdvanceRound:
+		return "advance_round"
 	case ActApplyConfig:
 		return "apply_config"
 	default:

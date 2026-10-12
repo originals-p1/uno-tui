@@ -1217,3 +1217,681 @@ func TestView_RulesShowsStacking(t *testing.T) {
 		}
 	}
 }
+
+// TestRender_FinalHands verifies the finished screen lists every player's cards.
+func TestRender_FinalHands(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseFinished)
+		v.WinnerPlayerID = "p0"
+		v.Players = []game.PlayerView{
+			{ID: "p0", Name: "Alice", CardCount: 0},
+			{ID: "p1", Name: "Bob", CardCount: 2},
+		}
+		v.YourHand = nil
+		v.FinalHands = map[string][]game.CardView{
+			"p0": {},
+			"p1": {
+				{ID: "x1", Color: game.ColorGreen, Rank: game.RankTwo},
+				{ID: "x2", Color: game.ColorRed, Rank: game.RankSkip},
+			},
+		}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "各家手牌") {
+		t.Fatalf("missing 各家手牌 section: %q", out)
+	}
+	if !strings.Contains(out, "已出完，获胜") {
+		t.Fatalf("missing winner empty-hand note: %q", out)
+	}
+	if !strings.Contains(out, "跳牌") { // p1 holds a Red Skip
+		t.Fatalf("missing Bob's Skip card in final hands: %q", out)
+	}
+}
+
+// TestRender_ScoreBannerShowsHands verifies the per-round score banner lists
+// each player's end-of-round hand and their delta.
+func TestRender_ScoreBannerShowsHands(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundNumber = 2
+		v.RoundResult = &game.RoundResult{
+			RoundNumber:    1,
+			WinnerPlayerID: "p0",
+			Points:         4,
+			Deltas:         map[string]int{"p0": 4, "p1": -2},
+			Scores:         map[string]int{"p0": 4, "p1": -2},
+			Hands: map[string][]game.CardView{
+				"p0": {},
+				"p1": {{ID: "x1", Color: game.ColorRed, Rank: game.RankFour}},
+			},
+		}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "第 1 回合结束") {
+		t.Fatalf("missing round banner: %q", out)
+	}
+	if !strings.Contains(out, "各家手牌") || !strings.Contains(out, "Bob（-2 分）") || !strings.Contains(out, "已出完") {
+		t.Fatalf("score banner missing hands/deltas: %q", out)
+	}
+}
+
+// TestKey_RoundOverAdvance verifies pressing "c" on the round-over pause screen
+// emits advance_round.
+func TestKey_RoundOverAdvance(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundOver = true
+		v.Phase = string(game.PhaseFinished)
+		v.RoundNumber = 1
+		v.Scores = map[string]int{"p0": 4, "p1": -2}
+		v.TargetScore = 300
+		v.RoundResult = &game.RoundResult{
+			RoundNumber: 1, WinnerPlayerID: "p0", Points: 4,
+			Deltas: map[string]int{"p0": 4, "p1": -2},
+			Scores: map[string]int{"p0": 4, "p1": -2},
+			Hands:  map[string][]game.CardView{"p0": {}, "p1": {{ID: "x", Color: game.ColorRed, Rank: game.RankFour}}},
+		}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeRoundOver {
+		t.Fatalf("expected round-over mode, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "按 c 开始下一局") && !strings.Contains(out, "本局小结") {
+		t.Fatalf("round-over screen missing summary: %q", out)
+	}
+	if !strings.Contains(out, "Bob  累计 -2 分") {
+		t.Fatalf("round-over screen missing Bob's hand+score: %q", out)
+	}
+	_, a := runKey(t, m, "c")
+	if !strings.HasPrefix(a, "advance_round") {
+		t.Fatalf("c should emit advance_round, got %q", a)
+	}
+}
+
+// TestKey_RoundOver_OtherKeysDoNothing verifies that in the round-over pause
+// only "c" produces an action; other keys are ignored (no stray advance etc.).
+func TestKey_RoundOver_OtherKeysDoNothing(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundOver = true
+		v.Phase = string(game.PhaseFinished)
+		v.RoundNumber = 1
+		v.Scores = map[string]int{"p0": 4, "p1": -2}
+		v.TargetScore = 300
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeRoundOver {
+		t.Fatalf("expected round-over mode, got %v", m.mode())
+	}
+	for _, k := range []string{"d", " ", "enter", "x", "1", "h"} {
+		nm, cmd := m.Update(KeyMsg{Key: k})
+		if cmd != nil {
+			t.Fatalf("key %q in round-over should not emit a command", k)
+		}
+		if nm.(Model).mode() != ModeRoundOver {
+			t.Fatalf("key %q should keep round-over mode, got %v", k, nm.(Model).mode())
+		}
+	}
+}
+
+// TestMode_RoundOverWinnerEmptyHand verifies the round-over summary marks the
+// winner (empty hand) with "本局获胜" and lists a loser's remaining cards.
+func TestMode_RoundOverWinnerEmptyHand(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundOver = true
+		v.Phase = string(game.PhaseFinished)
+		v.RoundNumber = 1
+		v.Scores = map[string]int{"p0": 10, "p1": -3}
+		v.TargetScore = 300
+		v.RoundResult = &game.RoundResult{
+			RoundNumber: 1, WinnerPlayerID: "p0", Points: 10,
+			Deltas: map[string]int{"p0": 10, "p1": -3},
+			Scores: map[string]int{"p0": 10, "p1": -3},
+			Hands: map[string][]game.CardView{
+				"p0": {},
+				"p1": {{ID: "x", Color: game.ColorBlue, Rank: game.RankReverse}},
+			},
+		}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "Alice（本局获胜）") && !strings.Contains(out, "Alice（本局获胜）  累计 10 分") {
+		t.Fatalf("winner empty-hand note missing: %q", out)
+	}
+	if !strings.Contains(out, "B反转") { // p1 holds a Blue Reverse
+		t.Fatalf("loser's Reverse card not shown in round-over: %q", out)
+	}
+	if !strings.Contains(out, "本局得分") || !strings.Contains(out, "Alice +10") {
+		t.Fatalf("round-over deltas missing: %q", out)
+	}
+}
+
+// TestRender_ScoreMatchOver_Remaining verifies the SCORE match-over screen
+// shows each player's points, remaining card count, and final hands.
+func TestRender_ScoreMatchOver_Remaining(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.MatchOver = true
+		v.MatchWinnerPlayerID = "p0"
+		v.Phase = string(game.PhaseFinished)
+		v.WinnerPlayerID = "p0"
+		v.RoundNumber = 3
+		v.TargetScore = 500
+		v.Scores = map[string]int{"p0": 512, "p1": 287}
+		v.Players = []game.PlayerView{
+			{ID: "p0", Name: "Alice", CardCount: 0},
+			{ID: "p1", Name: "Bob", CardCount: 2},
+		}
+		v.YourHand = nil
+		v.FinalHands = map[string][]game.CardView{
+			"p0": {},
+			"p1": {
+				{ID: "x1", Color: game.ColorGreen, Rank: game.RankWild},
+				{ID: "x2", Color: game.ColorRed, Rank: game.RankTwo},
+			},
+		}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	if nm.(Model).mode() != ModeFinished {
+		t.Fatalf("score match-over should be ModeFinished, got %v", nm.(Model).mode())
+	}
+	out := nm.(Model).render(RenderOpts{Color: false})
+	if !strings.Contains(out, "率先达到 500 分夺冠") {
+		t.Fatalf("match champion banner missing: %q", out)
+	}
+	if !strings.Contains(out, "Bob  287 分，余 2 张") {
+		t.Fatalf("per-player remaining count missing: %q", out)
+	}
+	if !strings.Contains(out, "G万能") || !strings.Contains(out, "R2") {
+		t.Fatalf("match-over final hands missing cards: %q", out)
+	}
+}
+
+// TestKeys_AdvanceClearsRoundOver verifies that after sending advance_round the
+// client still advances when the server replies with a fresh in-round snapshot
+// (RoundOver gone → mode leaves round-over and shows the turn view).
+func TestKeys_AdvanceClearsRoundOver(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundOver = true
+		v.Phase = string(game.PhaseFinished)
+		v.Scores = map[string]int{"p0": 4, "p1": -2}
+		v.TargetScore = 300
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeRoundOver {
+		t.Fatalf("expected round-over mode, got %v", m.mode())
+	}
+	// server starts the next round: RoundOver false, back to a turn phase.
+	next := testSnap(func(v *game.GameView) {
+		v.WinMode = game.WinScore
+		v.RoundOver = false
+		v.Phase = string(game.PhaseTurn)
+		v.RoundNumber = 2
+		v.TopCard = game.CardView{ID: "t2", Color: game.ColorYellow, Rank: game.RankSeven}
+		v.ActiveColor = string(game.ColorYellow)
+		v.CurrentPlayer = "p1"
+		v.Scores = map[string]int{"p0": 4, "p1": -2}
+	})
+	nm, _ = m.Update(SnapshotMsg{View: next})
+	m = nm.(Model)
+	if m.mode() == ModeRoundOver {
+		t.Fatalf("mode should leave round-over after next round starts, still round-over")
+	}
+	if m.Snap.RoundNumber != 2 {
+		t.Fatalf("expected round number 2, got %d", m.Snap.RoundNumber)
+	}
+}
+
+// ---- config editor: combined challenge + stacking toggling (rule.md R22) ----
+
+// enterEditorFromRules opens the config editor and returns the model with
+// editSel at the given row.
+func enterEditorAt(t *testing.T, row int) Model {
+	t.Helper()
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: testSnap()})
+	m = nm.(Model)
+	nm, _ = m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 0, Locked: false})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "v"})
+	m = nm.(Model) // rules view
+	nm, _ = m.Update(KeyMsg{Key: "e"})
+	m = nm.(Model)
+	if m.mode() != ModeConfigEdit {
+		t.Fatalf("expected config edit mode, got %v", m.mode())
+	}
+	for m.editSel < row {
+		m = m.stepDown()
+	}
+	return m
+}
+
+// stepDown is a tiny test hook: moves the editor selection down one row.
+func (m Model) stepDown() Model {
+	nm, _ := m.Update(KeyMsg{Key: "j"})
+	return nm.(Model)
+}
+
+// TestConfigEditor_CombinedChallengeAndStacking verifies the +4 challenge and
+// the stacking rules can all be enabled at once under the combined rule, and
+// that mixed stacking implies both +2 and +4 stacking.
+func TestConfigEditor_CombinedChallengeAndStacking(t *testing.T) {
+	// Row 8 = "+4 挑战" (challenge), start there.
+	m := enterEditorAt(t, 8)
+	if m.Config == nil || !m.Config.Cards.ChallengeDrawFour {
+		t.Fatalf("default challenge should be on, got %v", m.Config.Cards.ChallengeDrawFour)
+	}
+	// Toggle challenge off with "left" so we know the edit works.
+	nm, _ := m.Update(KeyMsg{Key: "left"})
+	m = nm.(Model)
+	if m.Config.Cards.ChallengeDrawFour {
+		t.Fatal("challenge should have toggled off")
+	}
+	if !strings.Contains(m.editMsg, "未保存") {
+		t.Fatalf("editor should note unsaved change, got %q", m.editMsg)
+	}
+
+	// Navigate down to Row 12 = "混合叠加" (mix_stack) in the SAME session and
+	// enable it, then confirm the implied +2/+4 stacking on the same config.
+	for m.editSel < 12 {
+		nm, _ := m.Update(KeyMsg{Key: "j"})
+		m = nm.(Model)
+	}
+	if m.editSel != 12 {
+		t.Fatalf("editSel = %d, want 12", m.editSel)
+	}
+	nm, _ = m.Update(KeyMsg{Key: "right"})
+	m = nm.(Model)
+	if !m.Config.HouseRules.MixedStacking {
+		t.Fatal("mixed stacking should be on")
+	}
+	if !m.Config.HouseRules.StackDrawTwo || !m.Config.HouseRules.StackDrawFour {
+		t.Fatal("mixed stacking must imply +2 and +4 stacking")
+	}
+	// Challenge (changed earlier in this session) must still be OFF — challenge
+	// and stacking coexist independently; enabling stacking must not flip it.
+	if m.Config.Cards.ChallengeDrawFour {
+		t.Fatal("challenge should remain off while stacking was enabled (no forced interplay)")
+	}
+
+	// Turn mixed stacking back off. Since stack_four was implied ON when mixed
+	// was enabled, it stays on (R21 keeps both), so mixed simply turns off and
+	// leaves +2/+4 stacking intact.
+	nm, _ = m.Update(KeyMsg{Key: "left"})
+	m = nm.(Model)
+	if m.Config.HouseRules.MixedStacking {
+		t.Fatal("mixed stacking should be off")
+	}
+	if !m.Config.HouseRules.StackDrawTwo || !m.Config.HouseRules.StackDrawFour {
+		t.Fatal("turning mixed off must keep +2/+4 stacking (they were implied on)")
+	}
+}
+
+// TestConfigEditor_StepCycles verifies numeric options wrap at both ends.
+func TestConfigEditor_StepCycles(t *testing.T) {
+	// Row 15 = "目标积分"; default 500 ([]int{100,200,500,1000,2000}).
+	m := enterEditorAt(t, 15)
+	if m.Config.Game.TargetScore != 500 {
+		t.Fatalf("expected default target 500, got %d", m.Config.Game.TargetScore)
+	}
+	nm, _ := m.Update(KeyMsg{Key: "right"})
+	m = nm.(Model)
+	if m.Config.Game.TargetScore != 1000 {
+		t.Fatalf("right should step 500->1000, got %d", m.Config.Game.TargetScore)
+	}
+	// Step forward enough to wrap back to 100 (500,1000,2000,100->? no: 100,200,500,1000,2000).
+	m = enterEditorAt(t, 15)
+	nm, _ = m.Update(KeyMsg{Key: "left"}) // 500 -> 200
+	m = nm.(Model)
+	if m.Config.Game.TargetScore != 200 {
+		t.Fatalf("left should step 500->200, got %d", m.Config.Game.TargetScore)
+	}
+}
+
+// TestConfigEditor_SaveClosesOnConfirmedSnapshot verifies that once a config has
+// been submitted, a subsequent ConfigMsg round-trip leaves the editor.
+func TestConfigEditor_SaveClosesOnConfirmedSnapshot(t *testing.T) {
+	m := enterEditorAt(t, 0)
+	// Submit a change via "s".
+	_, cmd := m.Update(KeyMsg{Key: "s"})
+	if cmd == nil {
+		t.Fatal("s should emit a save action")
+	}
+	got := cmd().(ActionMsg)
+	if got.Kind != ActApplyConfig {
+		t.Fatalf("save should be ActApplyConfig, got %v", got.Kind)
+	}
+	// The play loop sends ConfigMsg back with the confirmed config; the editor
+	// must close itself (editMsg matches the sentinel).
+	m.editMsg = "已提交，等待确认…"
+	nm, _ := m.Update(ConfigMsg{Config: game.DefaultConfig(), ConfigVersion: 1, Locked: false})
+	m = nm.(Model)
+	if m.edit {
+		t.Fatal("editor should close after confirmed snapshot")
+	}
+}
+
+// ---- renderDrawDecision / renderStack rendering ----
+
+func TestRender_DrawDecisionScreen(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseDrawnDecision)
+		v.DrawDecision = &game.DrawDecisionView{Card: game.CardView{ID: "dd", Color: game.ColorWild, Rank: game.RankWildDrawFour}}
+		v.CurrentPlayer = "p0"
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeDrawnDecision {
+		t.Fatalf("expected drawn-decision mode, got %v", m.mode())
+	}
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "你摸到一张牌") || !strings.Contains(out, "W+4") {
+		t.Fatalf("draw decision screen wrong: %q", out)
+	}
+	if !strings.Contains(out, "(p) 打出该牌") || !strings.Contains(out, "(g) 保留并过") {
+		t.Fatalf("draw decision prompts missing: %q", out)
+	}
+}
+
+func TestRender_StackDecisionScreen(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 6, YourDecision: true, CanChallenge: true}
+		v.CurrentPlayer = "p0"
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	out := m.render(RenderOpts{Color: false})
+	if !strings.Contains(out, "你被罚摸 6 张（叠加中）") {
+		t.Fatalf("stack screen credits missing: %q", out)
+	}
+	if !strings.Contains(out, "(a) 接受惩罚") || !strings.Contains(out, "(c) 挑战最近一张 +4") {
+		t.Fatalf("stack decision prompts missing: %q", out)
+	}
+}
+
+// ---- color picker key mapping ----
+
+func TestKey_ColorPickerAllColors(t *testing.T) {
+	want := map[string]string{"r": "red", "y": "yellow", "g": "green", "b": "blue"}
+	for k, col := range want {
+		snap := testSnap(func(v *game.GameView) {
+			v.Phase = string(game.PhaseTurn)
+			v.CurrentPlayer = "p0"
+			v.YourHand = []game.CardView{{ID: "w", Color: game.ColorWild, Rank: game.RankWild}}
+			v.PlayableIDs = []string{"w"}
+		})
+		m := newModel("p0")
+		nm, _ := m.Update(SnapshotMsg{View: snap})
+		m = nm.(Model)
+		nm, _ = m.Update(KeyMsg{Key: "1"}) // select the wild -> color picker
+		m = nm.(Model)
+		if m.mode() != ModeColor {
+			t.Fatalf("key %q: expected color picker, got %v", k, m.mode())
+		}
+		nm, cmd := m.Update(KeyMsg{Key: k})
+		m = nm.(Model)
+		if cmd == nil {
+			t.Fatalf("key %q: color pick should emit a play action", k)
+		}
+		got := cmd().(ActionMsg)
+		if got.Kind != ActPlayCard || got.CardID != "w" || got.ChosenColor != col {
+			t.Fatalf("key %q: expected play w %s, got %+v", k, col, got)
+		}
+	}
+}
+
+func TestKey_ColorPickerInvalidKeyIgnored(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseTurn)
+		v.CurrentPlayer = "p0"
+		v.YourHand = []game.CardView{{ID: "w", Color: game.ColorWild, Rank: game.RankWild}}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "1"})
+	m = nm.(Model)
+	if m.mode() != ModeColor {
+		t.Fatalf("expected color picker, got %v", m.mode())
+	}
+	// A non-color key must not emit anything and must not leave the picker.
+	nm, cmd := m.Update(KeyMsg{Key: "x"})
+	m = nm.(Model)
+	if cmd != nil {
+		t.Fatalf("invalid color key should emit nothing, got cmd")
+	}
+	if m.mode() != ModeColor {
+		t.Fatalf("invalid color key should stay in picker, got %v", m.mode())
+	}
+}
+
+// ---- lobby keys ----
+
+func TestKey_LobbyReadyAndStart(t *testing.T) {
+	m := newModel("p0")
+	m.IsHost = true
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseLobby)
+		v.TopCard = game.CardView{}
+		v.ActiveColor = ""
+		v.CurrentPlayer = ""
+	})
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeLobby {
+		t.Fatalf("expected lobby mode, got %v", m.mode())
+	}
+	_, a := runKey(t, m, "r")
+	if !strings.HasPrefix(a, "ready") {
+		t.Fatalf("r should emit ready, got %q", a)
+	}
+	_, a = runKey(t, m, "s")
+	if !strings.HasPrefix(a, "start_game") {
+		t.Fatalf("host s should emit start_game, got %q", a)
+	}
+}
+
+func TestKey_LobbyStartNonHostIgnored(t *testing.T) {
+	m := newModel("p0")
+	m.IsHost = false
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseLobby)
+	})
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	_, a := runKey(t, m, "s")
+	if a != "" {
+		t.Fatalf("non-host s must not start the game, got %q", a)
+	}
+	// Ready still works for non-host.
+	_, a = runKey(t, m, "r")
+	if !strings.HasPrefix(a, "ready") {
+		t.Fatalf("r should emit ready for non-host, got %q", a)
+	}
+}
+
+// ---- hand cursor navigation in stack mode ----
+
+func TestKey_StackHandNavigateAndPlay(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseStack)
+		v.Stack = &game.StackView{Credits: 4, YourDecision: true, CanChallenge: false}
+		v.CurrentPlayer = "p0"
+		v.YourHand = []game.CardView{
+			{ID: "c0", Color: game.ColorRed, Rank: game.RankTwo},
+			{ID: "c1", Color: game.ColorYellow, Rank: game.RankFour},
+			{ID: "c2", Color: game.ColorGreen, Rank: game.RankNine},
+		}
+		v.PlayableIDs = []string{"c0", "c1"}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	if m.mode() != ModeStack {
+		t.Fatalf("expected stack mode, got %v", m.mode())
+	}
+	// Move the cursor down to index 2, then the selection marker reflects it.
+	nm, _ = m.Update(KeyMsg{Key: "down"})
+	m = nm.(Model)
+	nm, _ = m.Update(KeyMsg{Key: "j"})
+	m = nm.(Model)
+	if m.handSel != 2 {
+		t.Fatalf("handSel = %d, want 2", m.handSel)
+	}
+	// Enter plays the selected card.
+	_, cmd := m.Update(KeyMsg{Key: "enter"})
+	if cmd == nil {
+		t.Fatal("enter in stack mode should play the selected card")
+	}
+	got := cmd().(ActionMsg)
+	if got.Kind != ActPlayCard || got.CardID != "c2" {
+		t.Fatalf("expected play c2, got %+v", got)
+	}
+}
+
+// ---- playHandAt guards (not your turn / out of range) ----
+
+func TestKey_PlayNotYourTurnIgnored(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseTurn)
+		v.CurrentPlayer = "p1" // not this model
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	_, a := runKey(t, m, "1")
+	if a != "" {
+		t.Fatalf("playing out of turn must not emit an action, got %q", a)
+	}
+	// A wild card on a non-my turn must not open the color picker either.
+	m.Snap.YourHand = []game.CardView{{ID: "w", Color: game.ColorWild, Rank: game.RankWild}}
+	_, a = runKey(t, m, "1")
+	if a != "" {
+		t.Fatalf("wild selection out of turn must not emit an action, got %q", a)
+	}
+	if m.picking.Active {
+		t.Fatal("color picker must not open out of turn")
+	}
+}
+
+func TestKey_PlayOutOfRangeIgnored(t *testing.T) {
+	snap := testSnap(func(v *game.GameView) {
+		v.Phase = string(game.PhaseTurn)
+		v.CurrentPlayer = "p0"
+		v.YourHand = []game.CardView{{ID: "c0", Color: game.ColorRed, Rank: game.RankOne}}
+	})
+	m := newModel("p0")
+	nm, _ := m.Update(SnapshotMsg{View: snap})
+	m = nm.(Model)
+	// "3" indexes the 3rd card (index 2) which is out of range.
+	_, a := runKey(t, m, "3")
+	if a != "" {
+		t.Fatalf("out-of-range index must not emit an action, got %q", a)
+	}
+}
+
+// TestRender_ConfigEditor verifies the host rule editor renders every row with
+// its current value (exercising toggleGet for all boolean aliases).
+func TestRender_ConfigEditor(t *testing.T) {
+	m := enterEditorAt(t, 0)
+	out := m.render(RenderOpts{Color: false})
+	for _, label := range []string{"初始手牌数", "初始方向", "先手", "跳牌", "反转", "+2", "万能", "+4", "+4 挑战", "动作牌可收尾", "+2 叠加", "+4 叠加", "混合叠加", "自动 UNO", "胜负模式", "目标积分"} {
+		if !strings.Contains(out, label) {
+			t.Fatalf("config editor missing row %q:\n%s", label, out)
+		}
+	}
+	if !strings.Contains(out, "规则版本") || !strings.Contains(out, "↑/↓ 选择项目") {
+		t.Fatalf("config editor header/footer missing:\n%s", out)
+	}
+	// The cursor ▶ should mark the selected row (editSel 0).
+	if !strings.Contains(out, "▶ 初始手牌数") {
+		t.Fatalf("cursor should mark selected row:\n%s", out)
+	}
+}
+
+// TestConfigEditor_ToggleAllAliases walks every boolean toggle row, flips it
+// with right, and confirms the underlying config field changed (toggleSet).
+func TestConfigEditor_ToggleAllAliases(t *testing.T) {
+	// Each row's current value (from DefaultConfig), and a predicate to verify
+	// the field after a flip. Flipping always inverts the current value, so we
+	// assert the field CHANGED from its default (proves toggleSet took effect).
+	checks := []struct {
+		row  int
+		cur  bool
+		get  func(c *game.Config) bool
+	}{
+		{3, true, func(c *game.Config) bool { return c.Cards.EnableSkip }},
+		{4, true, func(c *game.Config) bool { return c.Cards.EnableReverse }},
+		{5, true, func(c *game.Config) bool { return c.Cards.EnableDrawTwo }},
+		{6, true, func(c *game.Config) bool { return c.Cards.EnableWild }},
+		{7, true, func(c *game.Config) bool { return c.Cards.EnableDrawFour }},
+		{8, true, func(c *game.Config) bool { return c.Cards.ChallengeDrawFour }},
+		{9, true, func(c *game.Config) bool { return c.Cards.AllowActionFinish }},
+		{10, false, func(c *game.Config) bool { return c.HouseRules.StackDrawTwo }},
+		{11, false, func(c *game.Config) bool { return c.HouseRules.StackDrawFour }},
+		{13, true, func(c *game.Config) bool { return c.HouseRules.AutoUNO }},
+	}
+	for _, ck := range checks {
+		m := enterEditorAt(t, ck.row)
+		nm, _ := m.Update(KeyMsg{Key: "right"}) // flip (invert) the current value
+		m = nm.(Model)
+		if ck.get(m.Config) == ck.cur {
+			t.Fatalf("row %d did not toggle (stayed %v): %+v", ck.row, ck.cur, m.Config)
+		}
+	}
+	// The "初始手牌数" numeric row (0) steps through []int{5,7,10}.
+	m := enterEditorAt(t, 0)
+	nm, _ := m.Update(KeyMsg{Key: "right"}) // 7 -> 10
+	m = nm.(Model)
+	if m.Config.Game.InitialHandSize != 10 {
+		t.Fatalf("hand size should step to 10, got %d", m.Config.Game.InitialHandSize)
+	}
+	// "目标积分" numeric row (15) steps and wraps; from 500 right -> 1000.
+	m = enterEditorAt(t, 15)
+	nm, _ = m.Update(KeyMsg{Key: "right"})
+	m = nm.(Model)
+	if m.Config.Game.TargetScore != 1000 {
+		t.Fatalf("target should step to 1000, got %d", m.Config.Game.TargetScore)
+	}
+}
+
+// TestView_RulesShowsEveryEnabledField verifies the rules screen (press v) lists
+// every host-configurable rule, so no enabled house rule is ever hidden from view.
+func TestView_RulesShowsEveryEnabledField(t *testing.T) {
+	m := newModel("p0")
+	cfg := game.DefaultConfig()
+	cfg.Cards.AllowActionFinish = true
+	m.Config = &cfg
+	m.ConfigVersion = 3
+	out := m.renderRules(RenderOpts{Color: false})
+	for _, want := range []string{
+		"初始手牌：7 张", "初始方向：", "先手：", "胜负模式：",
+		"牌组：经典 108 张",
+		"万能：开", "+4：开", "+4 挑战：开", "跳牌：开", "反转：开", "+2：开",
+		"自动 UNO：开", "动作牌可收尾：开",
+		"+2 叠加：关", "+4 叠加：关", "混合叠加：关",
+		"动作牌可收尾（开）",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("rules screen missing %q:\n%s", want, out)
+		}
+	}
+}

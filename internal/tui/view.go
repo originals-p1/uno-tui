@@ -73,6 +73,8 @@ func (m Model) renderBody(o RenderOpts) string {
 		return m.renderChallenge(o)
 	case ModeStack:
 		return banner + m.renderStack(o)
+	case ModeRoundOver:
+		return m.renderRoundOver(o)
 	case ModeRules:
 		return m.renderRules(o)
 	case ModeHistory:
@@ -377,18 +379,79 @@ func (m Model) scoreBanner(o RenderOpts) string {
 	}
 	rr := s.RoundResult
 	name := m.displayName(rr.WinnerPlayerID)
-	line := fmt.Sprintf("第 %d 回合结束：%s +%d 分。", rr.RoundNumber, name, rr.Points)
+	var b strings.Builder
+	b.WriteString(fmt.Sprintf("第 %d 回合结束：%s +%d 分。", rr.RoundNumber, name, rr.Points))
 	// Show each loser's deduction (based on cards remaining in hand).
 	for pid, d := range rr.Deltas {
 		if d >= 0 {
 			continue
 		}
-		line += fmt.Sprintf(" %s %d", m.displayName(pid), d)
+		b.WriteString(fmt.Sprintf(" %s %d", m.displayName(pid), d))
+	}
+	b.WriteString("\n各家手牌：\n")
+	for _, p := range s.Players {
+		cards := rr.Hands[p.ID]
+		if len(cards) == 0 {
+			b.WriteString(fmt.Sprintf("  %s：（已出完，获胜，+%d 分）\n", m.displayName(p.ID), rr.Deltas[p.ID]))
+			continue
+		}
+		items := make([]string, 0, len(cards))
+		for _, c := range cards {
+			items = append(items, cardText(c))
+		}
+		sum := 0
+		if d, ok := rr.Deltas[p.ID]; ok {
+			sum = d
+		}
+		b.WriteString(fmt.Sprintf("  %s（%+d 分）：%s\n", m.displayName(p.ID), sum, strings.Join(items, "  ")))
 	}
 	if o.Color {
-		return successStyle(line) + "\n"
+		return successStyle(b.String()) + "\n"
 	}
-	return "  " + line + "\n"
+	return "  " + b.String() + "\n"
+}
+
+// renderRoundOver renders the SCORE-mode round-over pause: the just-finished
+// round's hands and scores are shown to everyone, and any player presses "c" to
+// start the next round (rule.md R28). The match's running score line is included.
+func (m Model) renderRoundOver(o RenderOpts) string {
+	var b strings.Builder
+	s := m.Snap
+	if s == nil {
+		return ""
+	}
+	b.WriteString("第 " + fmt.Sprint(s.RoundNumber) + " 局结束，本局小结：\n")
+	b.WriteString(m.renderScoreLine(o))
+	b.WriteString("\n各家手牌与积分：\n")
+	rr := s.RoundResult
+	for _, p := range s.Players {
+		mark := "  "
+		if rr != nil && p.ID == rr.WinnerPlayerID {
+			mark = "★ "
+		}
+		var cards []game.CardView
+		if rr != nil {
+			cards = rr.Hands[p.ID]
+		}
+		score := s.Scores[p.ID]
+		if len(cards) == 0 {
+			b.WriteString(fmt.Sprintf("%s%s（本局获胜）  累计 %d 分\n", mark, m.displayName(p.ID), score))
+			continue
+		}
+		items := make([]string, 0, len(cards))
+		for _, c := range cards {
+			items = append(items, cardText(c))
+		}
+		b.WriteString(fmt.Sprintf("%s%s  累计 %d 分：%s\n", mark, m.displayName(p.ID), score, strings.Join(items, "  ")))
+	}
+	if rr != nil {
+		b.WriteString("\n本局得分：")
+		for pid, d := range rr.Deltas {
+			b.WriteString(fmt.Sprintf(" %s %+d", m.displayName(pid), d))
+		}
+		b.WriteString("\n")
+	}
+	return b.String()
 }
 
 // renderScoreLine renders a one-line score-match status (round number, target,
@@ -431,6 +494,7 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  反转：%s\n", onOff(c.Cards.EnableReverse)))
 	b.WriteString(fmt.Sprintf("  +2：%s\n", onOff(c.Cards.EnableDrawTwo)))
 	b.WriteString(fmt.Sprintf("  自动 UNO：%s\n", onOff(c.HouseRules.AutoUNO)))
+	b.WriteString(fmt.Sprintf("  动作牌可收尾：%s\n", onOff(c.Cards.AllowActionFinish)))
 	b.WriteString("\n叠加房规：\n")
 	b.WriteString(fmt.Sprintf("  +2 叠加：%s\n", onOff(c.HouseRules.StackDrawTwo)))
 	b.WriteString(fmt.Sprintf("  +4 叠加：%s\n", onOff(c.HouseRules.StackDrawFour)))
@@ -442,6 +506,7 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  万能（%s）：你指定下一种颜色\n", onOff(c.Cards.EnableWild)))
 	b.WriteString(fmt.Sprintf("  +4（%s）：你指定颜色，且下一个玩家摸 4 张\n", onOff(c.Cards.EnableDrawFour)))
 	b.WriteString(fmt.Sprintf("  +4 挑战（%s）：怀疑对方出 +4 时手里仍有该颜色牌，可挑战\n", onOff(c.Cards.ChallengeDrawFour)))
+	b.WriteString(fmt.Sprintf("  动作牌可收尾（%s）：开=动作牌可作为获胜的最后一手；关=最后一张不能是动作牌\n", onOff(c.Cards.AllowActionFinish)))
 	if c.HouseRules.StackDrawTwo {
 		b.WriteString("  +2 叠加：被 +2 攻击者可再出 +2 把惩罚传下去（张数累加）\n")
 	}
@@ -770,8 +835,9 @@ func (m Model) renderFinished(o RenderOpts) string {
 			if p.ID == m.Snap.MatchWinnerPlayerID {
 				mark = "★ "
 			}
-			b.WriteString(fmt.Sprintf("%s%s  %d 分\n", mark, p.Name, m.Snap.Scores[p.ID]))
+			b.WriteString(fmt.Sprintf("%s%s  %d 分，余 %d 张\n", mark, p.Name, m.Snap.Scores[p.ID], p.CardCount))
 		}
+		b.WriteString(m.renderFinalHands(o))
 		b.WriteString("\n  (b) 返回大厅，再开一局   (l) 离开房间\n")
 		return b.String()
 	}
@@ -792,10 +858,35 @@ func (m Model) renderFinished(o RenderOpts) string {
 		}
 		b.WriteString(fmt.Sprintf("%s%s  %d 张\n", mark, p.Name, p.CardCount))
 	}
+	b.WriteString(m.renderFinalHands(o))
 	if m.history != nil {
 		b.WriteString(fmt.Sprintf("\n已记录 %d 局对局，按 t 查看历史。\n", len(m.history)))
 	}
 	b.WriteString("\n  (b) 返回大厅，再开一局   (t) 对局记录   (l) 离开房间\n")
+	return b.String()
+}
+
+// renderFinalHands renders every player's remaining cards after the game is over
+// (single-round finish and SCORE match-over). Data comes from the committed view's
+// FinalHands snapshot.
+func (m Model) renderFinalHands(o RenderOpts) string {
+	var b strings.Builder
+	if m.Snap == nil || len(m.Snap.FinalHands) == 0 {
+		return ""
+	}
+	b.WriteString("\n各家手牌：\n")
+	for _, p := range m.Snap.Players {
+		cards := m.Snap.FinalHands[p.ID]
+		if len(cards) == 0 {
+			b.WriteString(fmt.Sprintf("  %s：（已出完，获胜）\n", m.displayName(p.ID)))
+			continue
+		}
+		items := make([]string, 0, len(cards))
+		for _, c := range cards {
+			items = append(items, cardText(c))
+		}
+		b.WriteString(fmt.Sprintf("  %s：%s\n", m.displayName(p.ID), strings.Join(items, "  ")))
+	}
 	return b.String()
 }
 
@@ -882,6 +973,8 @@ func (m Model) renderFooter(o RenderOpts) string {
 		return "按键：c=挑战 a=接受 h=帮助 q=退出"
 	case ModeStack:
 		return "按键：1-9/0=出+2/+4叠加 ↑/↓=选牌回车=打出 a=接受惩罚 c=挑战+4(可) h=帮助 q=退出"
+	case ModeRoundOver:
+		return "按键：c=开始下一局   (l) 离开房间   h=帮助"
 	case ModeRules:
 		return "按键：v=返回 e=编辑(房主) h=帮助 q=退出"
 	case ModeConfigEdit:

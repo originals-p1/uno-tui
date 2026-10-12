@@ -111,6 +111,8 @@ func (m appModel) dispatch(a tui.ActionMsg) {
 		_, _ = c.SendAction(game.Action{Type: game.ActionAcceptStack}, rev)
 	case tui.ActChallengeStack:
 		_, _ = c.SendAction(game.Action{Type: game.ActionChallengeStack}, rev)
+	case tui.ActAdvanceRound:
+		_, _ = c.AdvanceRound(rev)
 	case tui.ActReady:
 		_, _ = c.Ready(true, rev)
 	case tui.ActStartGame:
