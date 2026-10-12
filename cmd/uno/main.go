@@ -22,7 +22,7 @@ import (
 	"syscall"
 )
 
-const version = "1.8.0"
+const version = "1.8.1"
 
 // defaultPort is applied when a join address omits a port (readme §7.2).
 const defaultPort = 7777
