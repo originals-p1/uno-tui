@@ -618,7 +618,7 @@ func TestChallenge_CleanTargetDrawsSixAndSkipped(t *testing.T) {
 		t.Fatalf("play +4: %v", err)
 	}
 	beforeChallenger := len(g.Players[1].Hand)
-	_, err := g.Apply("p1", Action{Type: ActionChallengeFour})
+	res, err := g.Apply("p1", Action{Type: ActionChallengeFour})
 	if err != nil {
 		t.Fatalf("challenge: %v", err)
 	}
@@ -628,6 +628,20 @@ func TestChallenge_CleanTargetDrawsSixAndSkipped(t *testing.T) {
 	// Challenger skipped -> resolver (p0) is current again.
 	if g.CurrentIndex != 2 {
 		t.Fatalf("current idx = %d, want 2 (p1 skipped)", g.CurrentIndex)
+	}
+	// Challenge with a clean resolver is a FAILURE: CHALLENGE_FAILED event and a
+	// non-succeeded result banner.
+	if g.lastChallengeResult == nil || g.lastChallengeResult.Succeeded {
+		t.Fatalf("clean challenge result = %+v, want failed", g.lastChallengeResult)
+	}
+	if g.lastChallengeResult.ResolverPlayerID != "p0" || g.lastChallengeResult.ChallengerPlayerID != "p1" {
+		t.Fatalf("challenge result players = %+v, want resolver p0 / challenger p1", g.lastChallengeResult)
+	}
+	if ok, _ := res.eventsContain(EventChallengeFailed); !ok {
+		t.Fatalf("expected CHALLENGE_FAILED event, got %+v", res.Events)
+	}
+	if ok, _ := res.eventsContain(EventChallengeSucceeded); ok {
+		t.Fatalf("unexpected CHALLENGE_SUCCEEDED event: %+v", res.Events)
 	}
 }
 

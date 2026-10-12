@@ -150,4 +150,14 @@ func TestRoom_Stack_ChallengeFlows(t *testing.T) {
 	if pv := playerCount(v, "p1"); pv != 5 {
 		t.Fatalf("p1 card count = %d, want 5 (1 + 4 drawn)", pv)
 	}
+	// Clean challenge surfaces as a banner with succeeded=false.
+	if v.ChallengeRes == nil {
+		t.Fatalf("expected challenge_result banner in view, got nil")
+	}
+	if v.ChallengeRes.Succeeded {
+		t.Fatalf("clean stack challenge must be succeeded=false, got %+v", v.ChallengeRes)
+	}
+	if v.ChallengeRes.ResolverPlayerID != "p0" || v.ChallengeRes.ChallengerPlayerID != "p1" {
+		t.Fatalf("challenge result players = %+v, want resolver p0 / challenger p1", v.ChallengeRes)
+	}
 }
