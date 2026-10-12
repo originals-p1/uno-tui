@@ -96,3 +96,25 @@ func TestReadFrame_StickyPackets(t *testing.T) {
 		t.Fatal("expected EOF on exhausted stream")
 	}
 }
+
+// TestFrame_LargePayloadRoundTrip verifies a snapshot far larger than the old
+// 64 KiB cap (a giant hand from stacked +2/+4 penalties) writes and reads back
+// intact, so many-drawn-card hands no longer disconnect the client.
+func TestFrame_LargePayloadRoundTrip(t *testing.T) {
+	// 256 KiB: 4x the previous cap, well under the new limit.
+	payload := make([]byte, 256*1024)
+	for i := range payload {
+		payload[i] = byte('a' + i%26)
+	}
+	var buf bytes.Buffer
+	if err := WriteFrame(&buf, payload); err != nil {
+		t.Fatalf("write large frame: %v", err)
+	}
+	got, err := ReadFrame(bytes.NewReader(buf.Bytes()))
+	if err != nil {
+		t.Fatalf("read large frame: %v", err)
+	}
+	if len(got) != len(payload) || string(got) != string(payload) {
+		t.Fatalf("large payload corrupted: in=%d out=%d", len(payload), len(got))
+	}
+}

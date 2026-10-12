@@ -8,9 +8,13 @@ import (
 	"io"
 )
 
-// MaxFramePayload is the maximum JSON payload size accepted on the wire
-// (readme §9 default: 64 KiB).
-const MaxFramePayload = 64 * 1024
+// MaxFramePayload is the maximum JSON payload size accepted on the wire.
+// It must be generous enough to carry a single player's personal snapshot,
+// which embeds their full hand. Stacking penalties (+2/+4 chains) and
+// challenge rerolls can pile dozens-hundreds of cards onto one player; a
+// hand of ~2000 cards serializes to roughly 120 KiB, so 4 MiB leaves ample
+// headroom while still bounding per-frame allocation.
+const MaxFramePayload = 4 * 1024 * 1024
 
 // Frame length header size in bytes.
 const frameHeaderSize = 4
