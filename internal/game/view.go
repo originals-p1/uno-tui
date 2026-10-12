@@ -58,9 +58,10 @@ type StackView struct {
 // resolved (rule.md R13). It is non-secret and shown to all players until the
 // next in-turn action clears it.
 type ChallengeResult struct {
-	Succeeded          bool   `json:"succeeded"` // challenger's challenge succeeded
+	Succeeded          bool   `json:"succeeded"`   // challenger's challenge succeeded
 	ResolverPlayerID   string `json:"resolver_player_id"`
 	ChallengerPlayerID string `json:"challenger_player_id"`
+	TriggerColor       string `json:"trigger_color"` // the judgment color (pre-+4 active color)
 }
 
 // RoundResult is a transient banner describing the just-completed round of a

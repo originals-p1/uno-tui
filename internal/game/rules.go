@@ -480,6 +480,7 @@ func (g *Game) applyChallengeFour(pi int) (*Result, error) {
 	g.lastChallengeResult = &ChallengeResult{
 		ResolverPlayerID:   g.challengeResolver,
 		ChallengerPlayerID: g.Players[pi].ID,
+		TriggerColor:       string(g.challengeTriggerColor),
 	}
 	if g.challengeViolated {
 		// Resolver held the active color: they draw 4, challenger continues.
@@ -612,8 +613,9 @@ func (g *Game) applyEffectsAndAdvance(pi int, played Rank, res *Result) {
 type stackPileEntry struct {
 	playerID string
 	rank     Rank
-	credits  int
-	violated bool // for a +4: did the player hold the active color at play time
+	credits     int
+	violated    bool   // for a +4: did the player hold the active color at play time
+	triggerColor string // for a +4: the judgment color (active color at play time)
 }
 
 // pushStack records a contributed card. The challengeable resolver is latched to
@@ -623,6 +625,7 @@ func (g *Game) pushStack(pi int, rank Rank, credits int) {
 	entry := stackPileEntry{playerID: g.Players[pi].ID, rank: rank, credits: credits}
 	if rank == RankWildDrawFour && g.Config.Cards.ChallengeDrawFour {
 		entry.violated = hasColor(g.Players[pi].Hand, g.ActiveColor)
+		entry.triggerColor = string(g.ActiveColor)
 	}
 	g.stackPile = append(g.stackPile, entry)
 	g.stackCredits += credits
@@ -790,6 +793,7 @@ func (g *Game) applyChallengeStack(pi int) (*Result, error) {
 	g.lastChallengeResult = &ChallengeResult{
 		ResolverPlayerID:   last.playerID,
 		ChallengerPlayerID: g.Players[pi].ID,
+		TriggerColor:       last.triggerColor,
 	}
 	if last.violated {
 		// Resolver held the active color: nullify the initial +4, they draw 4,

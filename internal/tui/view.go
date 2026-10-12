@@ -264,9 +264,11 @@ func (m Model) renderChallenge(o RenderOpts) string {
 	if trigger == "" {
 		colZh = "未知"
 	}
-	b.WriteString("出 +4 前桌面颜色：" + colZh + "\n")
-	b.WriteString("你被罚摸 4 张牌。你怀疑他出 +4 时手里其实有同色的 " + colZh + " 牌吗？\n\n")
-	b.WriteString("  (c) 挑战 —— 若对方违规，他摸 4 张；若没有，你摸 6 张\n")
+	b.WriteString("判定颜色（出 +4 前的桌面颜色）：【" + colZh + "】\n")
+	b.WriteString("你被罚摸 4 张。挑战只问一件事：他出 +4 那一刻，手里是否还握着【" + colZh + "】色的牌？\n")
+	b.WriteString("（握有 = 违规 → 他摸 4、你继续；没握 = 清白 → 你摸 6、跳过。）\n")
+	b.WriteString("（+4 新选的颜色只决定之后的跟色，与本次挑战无关。）\n\n")
+	b.WriteString("  (c) 挑战 —— 依上判定\n")
 	b.WriteString("  (a) 接受 —— 你摸 4 张，跳过回合\n")
 	return b.String()
 }
@@ -284,7 +286,7 @@ func (m Model) renderStack(o RenderOpts) string {
 	b.WriteString("  (1-9/0 选中可叠加牌打出) —— 传递 +2/+4 继续累加\n")
 	b.WriteString("  (a) 接受惩罚 —— 摸 " + fmt.Sprintf("%d", credits) + " 张并跳过\n")
 	if canChallenge {
-		b.WriteString("  (c) 挑战最近一张 +4 —— 若其违规则惩罚减少 4 并让其摸 4\n")
+		b.WriteString("  (c) 挑战初始 +4 —— 若其握有出 +4 前的判定色则违规：惩罚 −4 并让其摸 4；否则你摸整堆\n")
 	}
 	b.WriteString("\n")
 	b.WriteString(m.renderGame(o))
@@ -299,16 +301,20 @@ func (m Model) challengeResultBanner(o RenderOpts) string {
 	cr := m.Snap.ChallengeRes
 	resolver := m.displayName(cr.ResolverPlayerID)
 	challenger := m.displayName(cr.ChallengerPlayerID)
+	colZh := colorNameZh(cr.TriggerColor)
+	if cr.TriggerColor == "" {
+		colZh = "未知"
+	}
 	var b strings.Builder
 	if cr.Succeeded {
-		line := "挑战成功：" + resolver + " 违规，摸了 4 张牌；" + challenger + " 回合继续。"
+		line := "挑战成功：" + resolver + " 出 +4 时手里握有判定色【" + colZh + "】= 违规，摸 4 张；" + challenger + " 回合继续。"
 		if o.Color {
 			b.WriteString(successStyle(line) + "\n")
 		} else {
 			b.WriteString("  " + line + "\n")
 		}
 	} else {
-		line := "挑战失败：" + challenger + " 摸了 6 张牌并被跳过 （" + resolver + " 出 +4 合法）。"
+		line := "挑战失败：" + challenger + " 摸了 6 张牌并被跳过（" + resolver + " 出 +4 时未握判定色【" + colZh + "】= 合法）。"
 		if o.Color {
 			b.WriteString(failStyle(line) + "\n")
 		} else {
@@ -511,7 +517,7 @@ func (m Model) renderRules(o RenderOpts) string {
 	b.WriteString(fmt.Sprintf("  +2（%s）：下一个玩家摸 2 张并跳过回合\n", onOff(c.Cards.EnableDrawTwo)))
 	b.WriteString(fmt.Sprintf("  万能（%s）：你指定下一种颜色\n", onOff(c.Cards.EnableWild)))
 	b.WriteString(fmt.Sprintf("  +4（%s）：你指定颜色，且下一个玩家摸 4 张\n", onOff(c.Cards.EnableDrawFour)))
-	b.WriteString(fmt.Sprintf("  +4 挑战（%s）：怀疑对方出 +4 时手里仍有该颜色牌，可挑战\n", onOff(c.Cards.ChallengeDrawFour)))
+	b.WriteString(fmt.Sprintf("  +4 挑战（%s）：以「出 +4 前的桌面颜色」判定——对方当时手里仍握此色则违规\n", onOff(c.Cards.ChallengeDrawFour)))
 	b.WriteString(fmt.Sprintf("  动作牌可收尾（%s）：开=动作牌可作为获胜的最后一手；关=最后一张不能是动作牌\n", onOff(c.Cards.AllowActionFinish)))
 	if c.HouseRules.StackDrawTwo {
 		b.WriteString("  +2 叠加：被 +2 攻击者可再出 +2 把惩罚传下去（张数累加）\n")
@@ -524,7 +530,7 @@ func (m Model) renderRules(o RenderOpts) string {
 	}
 	if c.HouseRules.MixedStacking || c.HouseRules.StackDrawFour {
 		if c.Cards.ChallengeDrawFour {
-			b.WriteString("  叠加+挑战：叠加堆中最近一张是 +4 时，受罚者可挑战该 +4\n")
+			b.WriteString("  叠加+挑战：仅首个 +4 可挑战一次；按「出 +4 前的桌面颜色」判违规\n")
 		}
 	}
 	b.WriteString("\n  (v) 返回\n")

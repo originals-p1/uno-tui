@@ -207,8 +207,8 @@ func TestView_Challenge(t *testing.T) {
 	if strings.Contains(out, "之前出过 +4") {
 		t.Fatalf("challenge copy is misleading about the criterion: %q", out)
 	}
-	if !strings.Contains(out, "同色") {
-		t.Fatalf("challenge copy should mention having the same-color card: %q", out)
+	if !strings.Contains(out, "判定颜色") || !strings.Contains(out, "握有") {
+		t.Fatalf("challenge copy should explain the judgment color criterion: %q", out)
 	}
 }
 
@@ -220,8 +220,8 @@ func TestView_ChallengeShowsTriggerColor(t *testing.T) {
 	m := newModel("p0")
 	nm, _ := m.Update(SnapshotMsg{View: snap})
 	out := nm.(Model).render(RenderOpts{Color: false})
-	if !strings.Contains(out, "红") || !strings.Contains(out, "同色") {
-		t.Fatalf("challenge view should show the trigger color: %q", out)
+	if !strings.Contains(out, "红") || !strings.Contains(out, "判定颜色") || !strings.Contains(out, "【红】") {
+		t.Fatalf("challenge view should show the judgment (trigger) color: %q", out)
 	}
 }
 
@@ -1622,7 +1622,7 @@ func TestRender_StackDecisionScreen(t *testing.T) {
 	if !strings.Contains(out, "你被罚摸 6 张（叠加中）") {
 		t.Fatalf("stack screen credits missing: %q", out)
 	}
-	if !strings.Contains(out, "(a) 接受惩罚") || !strings.Contains(out, "(c) 挑战最近一张 +4") {
+	if !strings.Contains(out, "(a) 接受惩罚") || !strings.Contains(out, "(c) 挑战初始 +4") {
 		t.Fatalf("stack decision prompts missing: %q", out)
 	}
 }
