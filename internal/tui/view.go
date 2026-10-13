@@ -1062,7 +1062,11 @@ func (m Model) renderHelp(o RenderOpts) string {
 }
 
 func playerLine(m Model, p game.PlayerView, o RenderOpts) string {
-	parts := []string{p.Name}
+	name := p.Name
+	if m.inGame() && !m.Snap.RoundOver && m.Snap.WinnerPlayerID == "" && m.Snap.MatchWinnerPlayerID == "" && p.ID == m.SnapCurrentPlayer() {
+		name = "(" + name + ")"
+	}
+	parts := []string{name}
 	if p.ID == m.MyID {
 		parts = append(parts, "（你）")
 	}

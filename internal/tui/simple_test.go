@@ -41,7 +41,7 @@ func TestSimpleChallengeAndScore(t *testing.T) {
 		v.PlayableIDs = nil
 	})
 	out := m.render(RenderOpts{Unicode: true})
-	for _, want := range []string{"You:7(160)", "Bob:6(85)", "Round 3", "table BW+4", "color before R", "a accept 4", "c challenge", "┌"} {
+	for _, want := range []string{"(You):7(160)", "Bob:6(85)", "Round 3", "table BW+4", "color before R", "a accept 4", "c challenge", "┌"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}

@@ -82,7 +82,11 @@ func (m Model) renderSimple(o RenderOpts) string {
 	}
 	roster := []string{}
 	for _, p := range s.Players {
-		item := fmt.Sprintf("%s:%d", m.simpleName(p.ID), p.CardCount)
+		name := m.simpleName(p.ID)
+		if m.inGame() && !m.Snap.RoundOver && m.Snap.WinnerPlayerID == "" && m.Snap.MatchWinnerPlayerID == "" && p.ID == s.CurrentPlayer {
+			name = "(" + name + ")"
+		}
+		item := fmt.Sprintf("%s:%d", name, p.CardCount)
 		if m.mode() == ModeLobby {
 			item = m.simpleName(p.ID) + ":not ready"
 			if p.Ready {
