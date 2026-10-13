@@ -24,7 +24,7 @@ func simpleColor(c string, o RenderOpts) string {
 		return "?"
 	}
 	if o.Color {
-		return lip.NewStyle().Foreground(unoColor(c)).Render(sym)
+		return lip.NewStyle().Foreground(unoColor(c)).Render("●") + sym
 	}
 	return sym
 }
