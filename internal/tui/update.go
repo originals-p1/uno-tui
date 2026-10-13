@@ -52,7 +52,7 @@ func (m *Model) applySnapshot(v *game.GameView) {
 	m.simpleNotice = ""
 	if m.Snap != nil && m.Snap.Challenge != nil && m.Snap.CurrentPlayer == m.MyID &&
 		v.Challenge == nil && v.ChallengeRes == nil && len(v.YourHand) == len(m.Snap.YourHand)+4 {
-		m.simpleNotice = "已摸4张 · 跳过回合"
+		m.simpleNotice = "drew 4 · skip turn"
 	}
 	m.Snap = v
 	// Keep the hand cursor within the (possibly shrunk/grown) hand.

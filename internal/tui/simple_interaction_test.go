@@ -23,7 +23,7 @@ func TestSimpleWildDecisionAcrossToggle(t *testing.T) {
 				key, want = "p", ActPlayDrawn
 			}
 			m, action := runKey(t, m, key)
-			if action != "" || !strings.Contains(m.render(RenderOpts{}), "选色") {
+			if action != "" || !strings.Contains(m.render(RenderOpts{}), "color:") {
 				t.Fatal("wild must request color before sending an action")
 			}
 			m, _ = runKey(t, m, "m")
@@ -70,7 +70,7 @@ func TestSimpleScoreAndMatchWinner(t *testing.T) {
 	s.Scores = map[string]int{"p0": 196, "p1": -12}
 	s.RoundResult = &game.RoundResult{WinnerPlayerID: "p0", Points: 36, Scores: s.Scores}
 	out := m.render(RenderOpts{})
-	for _, want := range []string{"我:7(196)", "Bob:6(-12)", "本局我获胜 · +36分 → 196分", "c 下一局"} {
+	for _, want := range []string{"You:7(196)", "Bob:6(-12)", "You wins round · +36 pts → 196 pts", "c next round"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}
@@ -78,7 +78,7 @@ func TestSimpleScoreAndMatchWinner(t *testing.T) {
 	s.RoundOver, s.MatchOver = false, true
 	s.WinnerPlayerID, s.MatchWinnerPlayerID = "p0", "p1"
 	out = m.render(RenderOpts{})
-	if !strings.Contains(out, "Bob获胜 · b 返回大厅") || strings.Contains(out, "c 下一局") {
+	if !strings.Contains(out, "Bob wins · b back to lobby") || strings.Contains(out, "c next round") {
 		t.Fatal(out)
 	}
 }
@@ -97,12 +97,12 @@ func TestSimpleNoColorAndReverse(t *testing.T) {
 	}
 	m.Snap.PlayableIDs = []string{"r"}
 	out := m.render(defaultRenderOpts())
-	for _, want := range []string{"| ←", "[1]:R跳过", "2:Y反转", "3:G+2", "4:B9", "5:W+4"} {
+	for _, want := range []string{"| ←", "[1]:Rskip", "2:Yrev", "3:G+2", "4:B9", "5:W+4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}
 	}
-	if strings.Contains(out, "\x1b") || strings.Contains(out, "目标") {
+	if strings.Contains(out, "\x1b") || strings.Contains(out, "target") {
 		t.Fatal("color escapes or score info leaked into ordinary no-color game")
 	}
 }

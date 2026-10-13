@@ -26,7 +26,7 @@ func TestInteractiveSimpleToggleAndResize(t *testing.T) {
 		t.Fatal("display toggle emitted command")
 	}
 	m = n.(appModel)
-	if out := m.View().Content; strings.Contains(out, "终端 UNO") || !strings.Contains(out, "m 完整") {
+	if out := m.View().Content; strings.Contains(out, "终端 UNO") || !strings.Contains(out, "m full") {
 		t.Fatal(out)
 	}
 	n, _ = m.Update(tea.WindowSizeMsg{Width: 20, Height: 24})

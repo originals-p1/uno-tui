@@ -41,7 +41,7 @@ func TestSimpleChallengeAndScore(t *testing.T) {
 		v.PlayableIDs = nil
 	})
 	out := m.render(RenderOpts{Unicode: true})
-	for _, want := range []string{"我:7(160)", "Bob:6(85)", "第3局", "桌面 BW+4", "出牌前颜色 R", "a 接受摸4张", "c 挑战", "┌"} {
+	for _, want := range []string{"You:7(160)", "Bob:6(85)", "Round 3", "table BW+4", "color before R", "a accept 4", "c challenge", "┌"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}
@@ -88,20 +88,20 @@ func TestSimpleDecisionScreens(t *testing.T) {
 		want   string
 		framed bool
 	}{
-		{"waiting", func(m *Model) { m.Snap.CurrentPlayer = "p1" }, "等待Bob", false},
-		{"color", func(m *Model) { m.picking = CardPick{Active: true, CardID: "c2"} }, "选色：r R", true},
+		{"waiting", func(m *Model) { m.Snap.CurrentPlayer = "p1" }, "waiting for Bob", false},
+		{"color", func(m *Model) { m.picking = CardPick{Active: true, CardID: "c2"} }, "color: r R", true},
 		{"draw", func(m *Model) {
 			m.Snap.DrawDecision = &game.DrawDecisionView{Card: game.CardView{Color: game.ColorBlue, Rank: game.RankFive}}
-		}, "摸到 B5 · p 打出 · g 保留", true},
-		{"stack", func(m *Model) { m.Snap.Stack = &game.StackView{Credits: 8, YourDecision: true} }, "待摸 +8", true},
-		{"paused", func(m *Model) { m.Snap.Paused = &game.PausedView{DisconnectedPlayerIDs: []string{"p1"}} }, "等待Bob重连", false},
-		{"finished", func(m *Model) { m.Snap.WinnerPlayerID = "p1" }, "Bob获胜", false},
-		{"round over", func(m *Model) { m.Snap.RoundOver = true }, "c 下一局", false},
+		}, "drew B5 · p play · g keep", true},
+		{"stack", func(m *Model) { m.Snap.Stack = &game.StackView{Credits: 8, YourDecision: true} }, "draw +8", true},
+		{"paused", func(m *Model) { m.Snap.Paused = &game.PausedView{DisconnectedPlayerIDs: []string{"p1"}} }, "waiting for Bob to reconnect", false},
+		{"finished", func(m *Model) { m.Snap.WinnerPlayerID = "p1" }, "Bob wins", false},
+		{"round over", func(m *Model) { m.Snap.RoundOver = true }, "c next round", false},
 		{"failed challenge", func(m *Model) {
 			m.Snap.CurrentPlayer = "p1"
 			m.Snap.ChallengeRes = &game.ChallengeResult{ChallengerPlayerID: "p0"}
-		}, "挑战失败 · 我摸6张", false},
-		{"successful challenge", func(m *Model) { m.Snap.ChallengeRes = &game.ChallengeResult{Succeeded: true, ResolverPlayerID: "p1"} }, "挑战成功 · Bob摸4张", true},
+		}, "challenge failed · You draws 6", false},
+		{"successful challenge", func(m *Model) { m.Snap.ChallengeRes = &game.ChallengeResult{Succeeded: true, ResolverPlayerID: "p1"} }, "challenge won · Bob draws 4", true},
 	} {
 		t.Run(tt.name, func(t *testing.T) {
 			m := newModel("p0")
@@ -121,7 +121,7 @@ func TestSimpleOnlyPlayableNumbersHighlighted(t *testing.T) {
 	m.simple = true
 	m.Snap = testSnap()
 	o := RenderOpts{Color: true, Unicode: true}
-	bright := lip.NewStyle().Foreground(lip.Color("255")).Bold(true)
+	bright := lip.NewStyle().Foreground(unoColor("green")).Bold(true)
 	dim := lip.NewStyle().Foreground(lip.Color("240"))
 	out := m.render(o)
 	if !strings.Contains(out, bright.Render("1")+":") || !strings.Contains(out, dim.Render("2")+":") || !strings.Contains(out, bright.Render("3")+":") {
@@ -143,7 +143,7 @@ func TestSimpleAcceptNoticeAndOverlayReturn(t *testing.T) {
 	next.CurrentPlayer = "p1"
 	next.YourHand = append(next.YourHand, make([]game.CardView, 4)...)
 	m.applySnapshot(next)
-	if !strings.Contains(m.render(RenderOpts{}), "已摸4张 · 跳过回合") {
+	if !strings.Contains(m.render(RenderOpts{}), "drew 4 · skip turn") {
 		t.Fatal("missing accept result")
 	}
 	m, _ = runKey(t, m, "h")
