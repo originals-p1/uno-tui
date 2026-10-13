@@ -804,6 +804,10 @@ func (g *Game) applyAcceptStack(pi int) (*Result, error) {
 	g.CurrentIndex = wrap(pi+g.Direction, n)
 	g.Phase = PhaseTurn
 	g.clearStack()
+	// A +4 played as a final card into a stacking pile defers its win until the
+	// pile is settled (rule.md R27 / §16). Accepting the pile is the settlement
+	// point, so confirm any such deferred win here.
+	g.maybeResolveDeferredWin(res)
 	res.NextPlayerID = g.currentPlayer().ID
 	res.LegalMoves = g.handPlayableIDs(g.currentPlayer().Hand)
 	return res, nil

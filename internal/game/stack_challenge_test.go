@@ -189,3 +189,67 @@ func TestStack_FirstFour_AcceptDrawsFourNoPile(t *testing.T) {
 	}
 	_ = res
 }
+
+// TestStack_FinalFourDeferredWin_ResolvesOnAccept reproduces the reported bug:
+// a player who plays a w+4 as their FINAL card while re-stacking a pile gets its
+// win deferred (R27). That deferred win must be confirmed once the pile is
+// finally accepted. Previously applyAcceptStack never called
+// maybeResolveDeferredWin, so the game kept running with a 0-card player.
+func TestStack_FinalFourDeferredWin_ResolvesOnAccept(t *testing.T) {
+	g := mkGame(
+		[][]Card{
+			{tcard("d2", ColorRed, RankDrawTwo), tcard("a", ColorRed, RankOne)}, // extra so p0 doesn't empty
+			{tcard("w4", ColorWild, RankWildDrawFour)},                          // p1's only card
+			{tcard("c", ColorGreen, RankTwo)},
+		},
+		[]Card{
+			tcard("q1", ColorBlue, RankOne), tcard("q2", ColorGreen, RankTwo),
+			tcard("q3", ColorYellow, RankThree), tcard("q4", ColorRed, RankFour),
+			tcard("q5", ColorBlue, RankFive), tcard("q6", ColorGreen, RankSix),
+			tcard("q7", ColorRed, RankSeven),
+		},
+		tcard("top", ColorRed, RankFive), ColorRed, 1, 0, PhaseTurn,
+	)
+	g.Config.HouseRules.StackDrawTwo = true
+	g.Config.HouseRules.StackDrawFour = true
+	// Challenge stays ON (default) so a final +4 defers its win (R27).
+
+	// p0 plays a +2 -> starts a 2-credit pile handed to p1.
+	if _, err := g.Apply("p0", Action{Type: ActionPlayCard, CardID: "d2"}); err != nil {
+		t.Fatalf("p0 plays +2: %v", err)
+	}
+	if g.Phase != PhaseStack || g.stackCredits != 2 || g.currentPlayer().ID != "p1" {
+		t.Fatalf("after p0 +2: phase=%s credits=%d current=%s", g.Phase, g.stackCredits, g.currentPlayer().ID)
+	}
+
+	// p1 re-stacks with its final card, the w+4 -> hand empties, win deferred.
+	green := ColorGreen
+	res, err := g.Apply("p1", Action{Type: ActionPlayCard, CardID: "w4", ChosenColor: &green})
+	if err != nil {
+		t.Fatalf("p1 re-stacks final +4: %v", err)
+	}
+	if res.Ended {
+		t.Fatal("win must be deferred, not immediate, while the stack is unsettled")
+	}
+	if len(g.Players[1].Hand) != 0 {
+		t.Fatalf("p1 hand = %d, want 0 after playing final card", len(g.Players[1].Hand))
+	}
+	if g.stackCredits != 6 || g.currentPlayer().ID != "p2" {
+		t.Fatalf("after p1 +4: credits=%d current=%s, want 6/p2", g.stackCredits, g.currentPlayer().ID)
+	}
+
+	// p2 accepts the 6-credit pile -> p1's deferred win must now be confirmed.
+	res, err = g.Apply("p2", Action{Type: ActionAcceptStack})
+	if err != nil {
+		t.Fatalf("p2 accepts pile: %v", err)
+	}
+	if !res.Ended || g.WinnerPlayerID != "p1" {
+		t.Fatalf("deferred +4 win not resolved on pile accept: ended=%v winner=%q", res.Ended, g.WinnerPlayerID)
+	}
+	if g.Phase != PhaseFinished {
+		t.Fatalf("phase=%s, want finished", g.Phase)
+	}
+	if len(g.Players[1].Hand) != 0 {
+		t.Fatalf("winner p1 should have 0 cards, has %d", len(g.Players[1].Hand))
+	}
+}
