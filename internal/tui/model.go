@@ -30,9 +30,13 @@ type Model struct {
 	MyID   string
 	IsHost bool
 
-	Snap  *game.GameView
-	help  bool
-	rules bool
+	Snap         *game.GameView
+	help         bool
+	rules        bool
+	simple       bool
+	width        int
+	lastError    string
+	simpleNotice string
 
 	Config        *game.Config
 	ConfigVersion uint64

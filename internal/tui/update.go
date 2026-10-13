@@ -13,6 +13,9 @@ import (
 // a request.
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = v.Width
+		return m, nil
 	case SnapshotMsg:
 		m.applySnapshot(v.View)
 		m.recordFinished()
@@ -30,6 +33,7 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 	case ErrorMsg:
+		m.lastError = v.Message
 		if v.Code == protocol.CodeConfigStale && m.edit {
 			m.editMsg = "规则版本已过期（别人改过），请按 s 重新保存。"
 		}
@@ -44,6 +48,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 func (m *Model) applySnapshot(v *game.GameView) {
 	if v == nil {
 		return
+	}
+	m.simpleNotice = ""
+	if m.Snap != nil && m.Snap.Challenge != nil && m.Snap.CurrentPlayer == m.MyID &&
+		v.Challenge == nil && v.ChallengeRes == nil && len(v.YourHand) == len(m.Snap.YourHand)+4 {
+		m.simpleNotice = "已摸4张 · 跳过回合"
 	}
 	m.Snap = v
 	// Keep the hand cursor within the (possibly shrunk/grown) hand.
@@ -77,6 +86,9 @@ func (m *Model) bellOnTurn(v *game.GameView) tea.Cmd {
 		return nil // already beeped for this turn
 	}
 	m.rung = true
+	if m.simple {
+		return nil
+	}
 	return bellCmd()
 }
 
@@ -112,7 +124,7 @@ func (m *Model) bellOnJoin(v *game.GameView) tea.Cmd {
 		}
 	}
 	m.knownPlayers = present
-	if !newArrival || v.Phase != string(game.PhaseLobby) {
+	if m.simple || !newArrival || v.Phase != string(game.PhaseLobby) {
 		return nil
 	}
 	return bellCmd()
@@ -138,6 +150,11 @@ func (m *Model) recordFinished() {
 }
 
 func (m Model) onKey(k string) (tea.Model, tea.Cmd) {
+	if k == "m" {
+		m.simple = !m.simple
+		return m, nil
+	}
+	m.lastError = ""
 	if k == "h" || k == "?" {
 		m.help = !m.help
 		return m, nil

@@ -34,6 +34,9 @@ func (m Model) View() tea.View {
 
 // render produces the full screen for the current state.
 func (m Model) render(o RenderOpts) string {
+	if m.simple && !m.help && m.mode() != ModeRules && m.mode() != ModeHistory && m.mode() != ModeConfigEdit {
+		return m.renderSimple(o)
+	}
 	var b strings.Builder
 	if m.help {
 		b.WriteString(m.renderHelp(o))
@@ -44,6 +47,7 @@ func (m Model) render(o RenderOpts) string {
 	b.WriteString(m.renderBody(o))
 	b.WriteString("\n\n")
 	b.WriteString(m.renderFooter(o))
+	b.WriteString("\nm 简化/完整")
 	return b.String()
 }
 
@@ -1006,6 +1010,7 @@ func (m Model) renderFooter(o RenderOpts) string {
 
 func (m Model) renderHelp(o RenderOpts) string {
 	return `帮助
+  m       切换简化/完整界面（简化模式静音；玩家:手牌数(积分)）
   h/?     开关本帮助
   q       返回（在帮助/规则界面上按 q 关闭；主界面按 q 退出）
   l       离开房间

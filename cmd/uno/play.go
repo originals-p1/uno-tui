@@ -51,7 +51,7 @@ func (m appModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch v := msg.(type) {
 	case tea.KeyPressMsg:
 		return m.forward(tui.KeyMsg{Key: normalizeKey(v)})
-	case tui.SnapshotMsg, tui.HelpMsg, tui.ErrorMsg, tui.ConfigMsg:
+	case tea.WindowSizeMsg, tui.SnapshotMsg, tui.HelpMsg, tui.ErrorMsg, tui.ConfigMsg:
 		return m.forward(v)
 	case tui.ActionMsg:
 		go m.dispatch(v)
