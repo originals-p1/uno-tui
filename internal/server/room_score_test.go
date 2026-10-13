@@ -206,14 +206,21 @@ func TestRoom_ScoreMode_MultiRoundAccumulates(t *testing.T) {
 
 	// ---- Round 2: p0 wins over p1's {red two, green eight} = 10 points ----
 	g := r.game
-	g.Players[0].Hand = []game.Card{{ID: "rd8", Color: game.ColorRed, Rank: game.RankEight}}
-	g.Players[1].Hand = []game.Card{
+	// Seats are shuffled each round; assign the fixture by stable identity.
+	winnerSeat := 0
+	for i, p := range g.Players {
+		if p.ID == "p0" {
+			winnerSeat = i
+		}
+	}
+	g.Players[winnerSeat].Hand = []game.Card{{ID: "rd8", Color: game.ColorRed, Rank: game.RankEight}}
+	g.Players[1-winnerSeat].Hand = []game.Card{
 		{ID: "rt2", Color: game.ColorRed, Rank: game.RankTwo},
 		{ID: "gg8", Color: game.ColorGreen, Rank: game.RankEight},
 	}
 	g.DiscardPile = []game.Card{{ID: "top", Color: game.ColorRed, Rank: game.RankNine}}
 	g.ActiveColor = game.ColorRed
-	g.CurrentIndex = 0
+	g.CurrentIndex = winnerSeat
 	g.Direction = 1
 	g.Phase = game.PhaseTurn
 
@@ -242,4 +249,3 @@ func TestRoom_ScoreMode_MultiRoundAccumulates(t *testing.T) {
 		t.Fatalf("match should not be over at p0=14 vs target 500")
 	}
 }
-

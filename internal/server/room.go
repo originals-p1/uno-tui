@@ -663,13 +663,7 @@ func (r *Room) processStartGame(req *Request) *Outcome {
 			return &Outcome{ErrCode: CodeUnexpected, Message: "player disconnected"}
 		}
 	}
-	names := make([]string, 0, len(r.order))
-	ids := make([]string, 0, len(r.order))
-	for _, pid := range r.order {
-		names = append(names, r.players[pid].Name)
-		ids = append(ids, pid)
-	}
-	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
+	g, err := r.newRoundGame()
 	if err != nil {
 		return &Outcome{ErrCode: CodeConfigInvalid, Message: err.Error()}
 	}
@@ -1083,13 +1077,7 @@ func (r *Room) beginScorebook() {
 // the accumulated scores forward (rule.md R28). It must only be called when a
 // SCORE-mode round has just ended and the match is not yet over.
 func (r *Room) startNextRound() {
-	names := make([]string, 0, len(r.order))
-	ids := make([]string, 0, len(r.order))
-	for _, pid := range r.order {
-		names = append(names, r.players[pid].Name)
-		ids = append(ids, pid)
-	}
-	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
+	g, err := r.newRoundGame()
 	if err != nil {
 		// Same config already validated at match start; this cannot normally fail.
 		r.matchOver = true
@@ -1099,6 +1087,31 @@ func (r *Room) startNextRound() {
 	r.roundNum++
 	r.game = g
 	r.game.RoomRevision = r.revision
+}
+
+// newRoundGame shuffles seats independently for every deal. Lobby order and
+// session identities stay stable; the game's player order is authoritative
+// during play. Keep the actual host distinct from the random dealer at seat 0.
+func (r *Room) newRoundGame() (*game.Game, error) {
+	ids := append([]string(nil), r.order...)
+	rand.New(r.rng).Shuffle(len(ids), func(i, j int) { ids[i], ids[j] = ids[j], ids[i] })
+	names := make([]string, len(ids))
+	for i, id := range ids {
+		names[i] = r.players[id].Name
+	}
+	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
+	if err != nil {
+		return nil, err
+	}
+	for i := range g.Players {
+		member := r.players[g.Players[i].ID]
+		g.Players[i].IsHost = member.IsHost
+		g.Players[i].Ready = member.Ready
+		if r.config.Game.FirstPlayerMode == game.FirstHost && member.IsHost {
+			g.CurrentIndex = i
+		}
+	}
+	return g, nil
 }
 
 func copyScore(m map[string]int) map[string]int {
