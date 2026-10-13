@@ -57,7 +57,7 @@ func TestSimpleLargeHandNavigation(t *testing.T) {
 	}
 	next := testSnap()
 	m.applySnapshot(next)
-	if !strings.Contains(m.render(RenderOpts{}), ">[1]:R2") {
+	if !strings.Contains(m.render(RenderOpts{}), ">1:[R2]") {
 		t.Fatal("cursor not clamped after hand shrank")
 	}
 }
@@ -97,7 +97,7 @@ func TestSimpleNoColorAndReverse(t *testing.T) {
 	}
 	m.Snap.PlayableIDs = []string{"r"}
 	out := m.render(defaultRenderOpts())
-	for _, want := range []string{"| ←", "[1]:Rskip", "2:Yrev", "3:G+2", "4:B9", "5:W+4"} {
+	for _, want := range []string{"| ←", "1:[Rskip]", "2:Yrev", "3:G+2", "4:B9", "5:W+4"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}

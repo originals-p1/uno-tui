@@ -142,22 +142,16 @@ func (m Model) renderSimple(o RenderOpts) string {
 					st = lip.NewStyle().Foreground(unoColor("green")).Bold(true)
 				}
 				num = st.Render(num)
-			} else if playable {
-				num = "[" + num + "]"
 			}
 			cursor := ""
 			if i == m.handSel {
 				cursor = ">"
 			}
-			mark := ""
+			card := simpleCard(c, o)
 			if playable {
-				if o.Unicode {
-					mark = "✓"
-				} else {
-					mark = "*"
-				}
+				card = "[" + card + "]"
 			}
-			hand = append(hand, cursor+num+":"+simpleCard(c, o)+mark)
+			hand = append(hand, cursor+num+":"+card)
 		}
 		text := strings.Join(hand, "  ")
 		if text == "" {
