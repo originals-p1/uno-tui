@@ -10,20 +10,23 @@ import (
 )
 
 func simpleColor(c string, o RenderOpts) string {
-	if o.Color && o.Unicode {
-		return lip.NewStyle().Foreground(unoColor(c)).Render("●")
-	}
+	var sym string
 	switch c {
 	case "red":
-		return "R"
+		sym = "R"
 	case "yellow":
-		return "Y"
+		sym = "Y"
 	case "green":
-		return "G"
+		sym = "G"
 	case "blue":
-		return "B"
+		sym = "B"
+	default:
+		return "?"
 	}
-	return "?"
+	if o.Color {
+		return lip.NewStyle().Foreground(unoColor(c)).Render(sym)
+	}
+	return sym
 }
 
 func simpleCard(c game.CardView, o RenderOpts) string {
@@ -146,7 +149,15 @@ func (m Model) renderSimple(o RenderOpts) string {
 			if i == m.handSel {
 				cursor = ">"
 			}
-			hand = append(hand, cursor+num+":"+simpleCard(c, o))
+			mark := ""
+			if playable {
+				if o.Unicode {
+					mark = "✓"
+				} else {
+					mark = "*"
+				}
+			}
+			hand = append(hand, cursor+num+":"+simpleCard(c, o)+mark)
 		}
 		text := strings.Join(hand, "  ")
 		if text == "" {
