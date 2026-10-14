@@ -96,6 +96,9 @@ func (m Model) renderSimple(o RenderOpts) string {
 		if s.WinMode == game.WinScore {
 			item += fmt.Sprintf("(%d)", s.Scores[p.ID])
 		}
+		if p.UNO {
+			item += "[UNO!]"
+		}
 		if !p.Connected {
 			item += "[offline]"
 		}
@@ -109,6 +112,19 @@ func (m Model) renderSimple(o RenderOpts) string {
 		arrow = ">"
 		if s.Direction < 0 {
 			arrow = "<"
+		}
+	}
+	if m.inGame() && !s.RoundOver && s.WinnerPlayerID == "" && s.MatchWinnerPlayerID == "" {
+		for i, p := range s.Players {
+			if p.ID == s.CurrentPlayer {
+				step := 1
+				if s.Direction < 0 {
+					step = -1
+				}
+				next := (i + step + len(s.Players)) % len(s.Players)
+				arrow += " next(" + m.simpleName(s.Players[next].ID) + ")"
+				break
+			}
 		}
 	}
 	lines = append(lines, ansi.Wrap(strings.Join(roster, "  ")+" | "+arrow, width, " "))
