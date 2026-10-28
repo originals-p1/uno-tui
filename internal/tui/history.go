@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sort"
+	"terminal-uno/internal/matchlog"
 	"time"
 
 	"terminal-uno/internal/game"
@@ -12,23 +14,8 @@ import (
 // MatchRecord is a persisted record of a completed game, written by every
 // client that witnesses the game finish (readme §toast/log). History is kept
 // locally per user so privacy (never share opponents' hands) is preserved.
-type MatchRecord struct {
-	Seq           int64             `json:"seq"`
-	Time          time.Time         `json:"time"`
-	Winner        string            `json:"winner"`     // winner's display name
-	EndReason     string            `json:"end_reason,omitempty"`
-	ConfigVersion uint64            `json:"config_version"`
-	Events        []game.GameEvent  `json:"events,omitempty"`
-	Players       []RecordPlayer    `json:"players"`
-}
-
-// RecordPlayer is one participant's final state in a completed game.
-type RecordPlayer struct {
-	Name      string `json:"name"`
-	CardCount int    `json:"card_count"`
-	IsHost    bool   `json:"is_host,omitempty"`
-	Winner    bool   `json:"winner,omitempty"`
-}
+type MatchRecord = matchlog.MatchRecord
+type RecordPlayer = matchlog.RecordPlayer
 
 // historyFileOverride redirects the history database location (used by tests
 // to avoid writing into the executable's directory).
@@ -42,21 +29,25 @@ func historyFilePath() string {
 	if historyFileOverride != "" {
 		return historyFileOverride
 	}
-	if exe, err := os.Executable(); err == nil {
-		if dir := filepath.Dir(exe); dir != "" {
-			return filepath.Join(dir, "games.json")
-		}
-	}
-	if cwd, err := os.Getwd(); err == nil {
-		return filepath.Join(cwd, "games.json")
-	}
-	return "games.json"
+	return matchlog.LegacyPath()
 }
 
 // loadHistory reads the local match history, newest first. It never fails
 // hard: a missing or corrupt file yields an empty history.
 func loadHistory() []MatchRecord {
-	b, err := os.ReadFile(historyFilePath())
+	recs := readHistoryFile(historyFilePath())
+	paths, _ := filepath.Glob(filepath.Join(filepath.Dir(historyFilePath()), "games", "????-??-??.json"))
+	for _, p := range paths {
+		recs = append(recs, readHistoryFile(p)...)
+	}
+	sort.SliceStable(recs, func(i, j int) bool { return recs[i].Time.After(recs[j].Time) })
+	if len(recs) > maxHistoryRecords {
+		recs = recs[:maxHistoryRecords]
+	}
+	return recs
+}
+func readHistoryFile(path string) []MatchRecord {
+	b, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -74,23 +65,23 @@ func appendAndSave(recs []MatchRecord, rec MatchRecord) []MatchRecord {
 	if len(recs) > maxHistoryRecords {
 		recs = recs[:maxHistoryRecords]
 	}
-	if err := saveHistory(recs); err != nil {
-		// Non-fatal: records still shown for this session.
-		return recs
-	}
+	_ = matchlog.Append(historyFilePath(), rec)
 	return recs
 }
 
 func saveHistory(recs []MatchRecord) error {
+	return saveHistoryFile(historyFilePath(), recs)
+}
+func saveHistoryFile(path string, recs []MatchRecord) error {
 	b, err := json.MarshalIndent(recs, "", "  ")
 	if err != nil {
 		return err
 	}
-	dir := filepath.Dir(historyFilePath())
+	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return err
 	}
-	return os.WriteFile(historyFilePath(), b, 0o600)
+	return os.WriteFile(path, b, 0o600)
 }
 
 // recordFromView builds a MatchRecord from a finished game snapshot. The full

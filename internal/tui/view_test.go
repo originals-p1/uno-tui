@@ -1887,7 +1887,7 @@ func TestView_RulesShowsEveryEnabledField(t *testing.T) {
 	out := m.renderRules(RenderOpts{Color: false})
 	for _, want := range []string{
 		"初始手牌：7 张", "初始方向：", "先手：", "胜负模式：",
-		"牌组：经典 108 张",
+		"牌组：功能牌增强 140 张",
 		"万能：开", "+4：开", "+4 挑战：开", "跳牌：开", "反转：开", "+2：开",
 		"自动 UNO：开", "动作牌可收尾：开",
 		"+2 叠加：关", "+4 叠加：关", "混合叠加：关",

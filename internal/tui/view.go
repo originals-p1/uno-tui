@@ -503,7 +503,11 @@ func (m Model) renderRules(o RenderOpts) string {
 	if c.Game.WinMode == game.WinScore {
 		b.WriteString(fmt.Sprintf("  目标积分：%d 分\n", c.Game.TargetScore))
 	}
-	b.WriteString("  牌组：经典 108 张\n")
+	if c.Game.DeckType == game.DeckAction140 {
+		b.WriteString("  牌组：功能牌增强 140 张\n")
+	} else {
+		b.WriteString("  牌组：经典 108 张\n")
+	}
 	b.WriteString(fmt.Sprintf("  万能：%s\n", onOff(c.Cards.EnableWild)))
 	b.WriteString(fmt.Sprintf("  +4：%s\n", onOff(c.Cards.EnableDrawFour)))
 	b.WriteString(fmt.Sprintf("  +4 挑战：%s\n", onOff(c.Cards.ChallengeDrawFour)))

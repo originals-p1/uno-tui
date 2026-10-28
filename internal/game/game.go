@@ -112,11 +112,11 @@ type Game struct {
 	stackChallengeUsed    bool
 }
 
-// NewGame builds a fresh game from the standard 108-card deck, dealing opening
+// NewGame builds a fresh game from the configured deck, dealing opening
 // hands and establishing the initial top card. On any error it returns a nil
 // Game and leaves no partial state behind (readme §3.3 item 6).
 func NewGame(playerNames []string, rng rand.Source) (*Game, error) {
-	return newGameFromDeck(playerNames, StandardDeck(), rng)
+	return NewGameWithConfig(playerNames, nil, DefaultConfig(), rng)
 }
 
 // NewGameWithIDs is like NewGame but assigns the supplied stable player IDs
@@ -128,7 +128,7 @@ func NewGameWithIDs(playerNames, playerIDs []string, rng rand.Source) (*Game, er
 	return NewGameWithConfig(playerNames, playerIDs, DefaultConfig(), rng)
 }
 
-// NewGameWithConfig builds a fresh game from the standard 108-card deck using
+// NewGameWithConfig builds a fresh game from the configured deck using
 // the supplied room rule configuration (rule.md §0.2). It applies the config's
 // initial hand size, direction and first-player selection, and freezes the
 // config onto the game so rules are config-driven, never hardcoded.
@@ -151,7 +151,11 @@ func NewGameWithConfig(playerNames, playerIDs []string, cfg Config, rng rand.Sou
 			seen[id] = true
 		}
 	}
-	return newGameFromDeckIDs(playerNames, playerIDs, StandardDeck(), cfg, rng)
+	deck := StandardDeck()
+	if cfg.Game.DeckType == DeckAction140 {
+		deck = ActionDeck()
+	}
+	return newGameFromDeckIDs(playerNames, playerIDs, deck, cfg, rng)
 }
 
 // newGameFromDeck is the testable core of NewGame: it builds the game from an

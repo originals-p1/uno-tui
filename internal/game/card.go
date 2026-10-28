@@ -189,3 +189,15 @@ func IndexOf(hand []Card, id string) int {
 func sanitizeName(s string) string {
 	return strings.Join(strings.Fields(s), " ")
 }
+
+// ActionDeck increases action-card frequency while keeping numeric cards intact.
+func ActionDeck() []Card {
+	deck := StandardDeck()
+	for _, c := range StandardDeck() {
+		if IsAction(c.Rank) {
+			c.ID = cardID(len(deck))
+			deck = append(deck, c)
+		}
+	}
+	return deck
+}

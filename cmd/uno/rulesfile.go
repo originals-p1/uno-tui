@@ -53,6 +53,9 @@ func loadRulesConfig() game.Config {
 	if loaded.Validate() != nil {
 		return c
 	}
+	if loaded.Game.DeckType == game.DeckClassic108 {
+		loaded.Game.DeckType = game.DeckAction140
+	}
 	return loaded
 }
 

@@ -8,6 +8,7 @@ import (
 	"math/rand"
 	"strings"
 	"sync"
+	"terminal-uno/internal/matchlog"
 	"time"
 
 	"terminal-uno/internal/game"
@@ -173,9 +174,13 @@ func (o *Outcome) OK() bool { return o != nil && o.Commit != nil }
 // lobby -> turn -> ... lifecycle (readme §3.6). All mutation happens inside
 // process(), called only from the Run goroutine.
 type Room struct {
-	inbox chan *Request
-	done  chan struct{}
-	once  sync.Once
+	recordEvents []game.GameEvent
+	plays        []matchlog.PlayRecord
+	matchSaved   bool
+	historyBase  string
+	inbox        chan *Request
+	done         chan struct{}
+	once         sync.Once
 
 	cfg   Config
 	clock Clock
@@ -407,6 +412,7 @@ func (r *Room) expireDeadlines() {
 	if deadline && r.game != nil && r.started {
 		r.game.Phase = game.PhaseFinished
 		r.game.EndReason = "PLAYER_RECONNECT_TIMEOUT"
+		r.saveMatch()
 		r.revision++
 		r.game.RoomRevision = r.revision
 	}
@@ -804,6 +810,7 @@ func (r *Room) processDisconnect(req *Request) *Outcome {
 		if r.game != nil {
 			r.game.Phase = game.PhaseFinished
 			r.game.EndReason = "host_exit"
+			r.saveMatch()
 		}
 		r.revision++
 		return &Outcome{Commit: &Commit{Revision: r.revision}}
@@ -841,6 +848,7 @@ func (r *Room) minorLeave(playerID string) *Outcome {
 		if r.game != nil {
 			r.game.Phase = game.PhaseFinished
 			r.game.EndReason = "host_exit"
+			r.saveMatch()
 		}
 		r.revision++
 		return &Outcome{Commit: &Commit{Revision: r.revision}}
@@ -896,12 +904,26 @@ func (r *Room) processGameAction(req *Request) *Outcome {
 	// Propose: bump revision, run engine, roll back on error.
 	r.revision++
 	r.game.RoomRevision = r.revision
+	if len(r.recordEvents) == 0 {
+		r.recordEvents = append([]game.GameEvent{}, r.game.BuildViewFor(r.hostID).History...)
+	}
+	before := matchlog.Hands(r.game)
 	res, err := r.game.Apply(playerID, req.Action)
 	if err != nil {
 		r.revision--
 		r.game.RoomRevision = r.revision
 		code, msg := gameCode(err)
 		return &Outcome{ErrCode: code, Message: msg, Snapshot: r.buildView(playerID)}
+	}
+
+	for _, e := range res.Events {
+		r.recordEvents = append(r.recordEvents, game.GameEvent{ID: e.ID, Revision: r.revision, Type: string(e.Type), PlayerID: e.PlayerID, TargetPlayer: e.TargetPlayer, Card: e.Card, Color: string(e.Color), Payload: e.Payload})
+		if e.Type == game.EventCardPlayed {
+			r.plays = append(r.plays, matchlog.PlayRecord{EventID: e.ID, PlayerID: e.PlayerID, Card: e.Card, Color: e.Color, Before: before, After: matchlog.Hands(r.game)})
+		}
+	}
+	if res.Ended {
+		r.saveMatch()
 	}
 
 	// SCORE-mode round-end: award points and either finish the match or start the
@@ -1077,6 +1099,9 @@ func (r *Room) beginScorebook() {
 // the accumulated scores forward (rule.md R28). It must only be called when a
 // SCORE-mode round has just ended and the match is not yet over.
 func (r *Room) startNextRound() {
+	r.plays = nil
+	r.matchSaved = false
+	r.recordEvents = nil
 	g, err := r.newRoundGame()
 	if err != nil {
 		// Same config already validated at match start; this cannot normally fail.
@@ -1099,6 +1124,9 @@ func (r *Room) newRoundGame() (*game.Game, error) {
 	for i, id := range ids {
 		names[i] = r.players[id].Name
 	}
+	r.plays = nil
+	r.matchSaved = false
+	r.recordEvents = nil
 	g, err := game.NewGameWithConfig(names, ids, r.config, r.rng)
 	if err != nil {
 		return nil, err
@@ -1253,4 +1281,24 @@ func tokenMatchesRaw(provided, stored string) bool {
 		return false
 	}
 	return subtle.ConstantTimeCompare([]byte(provided), []byte(stored)) == 1
+}
+
+func (r *Room) saveMatch() {
+	if r.matchSaved || r.game == nil {
+		return
+	}
+	r.matchSaved = true
+	rec := matchlog.MatchRecord{Time: time.Now(), Seq: int64(r.roundNum), Plays: r.plays, Events: r.recordEvents, EndReason: r.game.EndReason, ConfigVersion: r.configVersion}
+	for _, p := range r.game.Players {
+		winner := p.ID == r.game.WinnerPlayerID
+		rec.Players = append(rec.Players, matchlog.RecordPlayer{Name: p.Name, CardCount: len(p.Hand), IsHost: p.IsHost, Winner: winner})
+		if winner {
+			rec.Winner = p.Name
+		}
+	}
+	base := r.historyBase
+	if base == "" {
+		base = matchlog.LegacyPath()
+	}
+	_ = matchlog.Append(base, rec)
 }

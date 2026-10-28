@@ -9,6 +9,7 @@ import (
 
 // DeckType identifiers (rule.md §2.3).
 const (
+	DeckAction140   = "ACTION_140"
 	DeckClassic108  = "CLASSIC_108"
 	DeckExtended112 = "EXTENDED_112"
 )
@@ -103,7 +104,7 @@ func DefaultConfig() Config {
 	c.Room.DisconnectTimeoutSec = 60 // v2 resolution 0.3-A2
 	c.Room.LeavePolicy = LeavePause
 	c.Room.HostLeavePolicy = HostCloseRoom
-	c.Game.DeckType = DeckClassic108
+	c.Game.DeckType = DeckAction140
 	c.Game.InitialHandSize = 7
 	c.Game.InitialDir = DirClockwise
 	c.Game.FirstPlayerMode = FirstAfterDealer
@@ -152,7 +153,7 @@ func (c Config) Validate() error {
 	if c.Room.MaxPlayers < 2 || c.Room.MaxPlayers > 4 {
 		return fmt.Errorf("max_players must be 2-4 (v2 scope), got %d", c.Room.MaxPlayers)
 	}
-	if c.Game.DeckType != DeckClassic108 {
+	if c.Game.DeckType != DeckClassic108 && c.Game.DeckType != DeckAction140 {
 		return fmt.Errorf("deck_type: v2 only supports %s, got %q", DeckClassic108, c.Game.DeckType)
 	}
 	switch c.Game.InitialHandSize {

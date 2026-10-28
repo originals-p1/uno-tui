@@ -143,7 +143,14 @@ func (m *Model) recordFinished() {
 	}
 	m.matchSeq++
 	rec := recordFromView(v, m.matchSeq, m.ConfigVersion)
-	m.history = appendAndSave(m.history, rec)
+	if m.IsHost {
+		m.history = append([]MatchRecord{rec}, m.history...)
+		if len(m.history) > maxHistoryRecords {
+			m.history = m.history[:maxHistoryRecords]
+		}
+	} else {
+		m.history = appendAndSave(m.history, rec)
+	}
 	if v.LastEventID != 0 {
 		m.recordedLastEventID = v.LastEventID
 	}
