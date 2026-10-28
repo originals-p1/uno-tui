@@ -86,9 +86,6 @@ func (m *Model) bellOnTurn(v *game.GameView) tea.Cmd {
 		return nil // already beeped for this turn
 	}
 	m.rung = true
-	if m.simple {
-		return nil
-	}
 	return bellCmd()
 }
 
@@ -124,7 +121,7 @@ func (m *Model) bellOnJoin(v *game.GameView) tea.Cmd {
 		}
 	}
 	m.knownPlayers = present
-	if m.simple || !newArrival || v.Phase != string(game.PhaseLobby) {
+	if !newArrival || v.Phase != string(game.PhaseLobby) {
 		return nil
 	}
 	return bellCmd()

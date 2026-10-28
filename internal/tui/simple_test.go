@@ -41,7 +41,7 @@ func TestSimpleChallengeAndScore(t *testing.T) {
 		v.PlayableIDs = nil
 	})
 	out := m.render(RenderOpts{Unicode: true})
-	for _, want := range []string{"You:7(160)", "Bob:6(85)", "Round 3", "table BW+4", "color before R", "a accept 4", "c challenge", "┌"} {
+	for _, want := range []string{"(You):7(160)", "Bob:6(85)", "Round 3", "table BW+4", "color before R", "a accept 4", "c challenge", "┌"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("missing %q in %s", want, out)
 		}
@@ -57,7 +57,7 @@ func TestSimpleChallengeAndScore(t *testing.T) {
 	}
 }
 
-func TestSimpleWidthAndSilentSnapshots(t *testing.T) {
+func TestSimpleWidthAndBellSnapshots(t *testing.T) {
 	m := newModel("p0")
 	m.simple = true
 	m.Snap = testSnap()
@@ -71,13 +71,13 @@ func TestSimpleWidthAndSilentSnapshots(t *testing.T) {
 			t.Errorf("line exceeds terminal width: %q", line)
 		}
 	}
-	if cmd := m.bellOnTurn(m.Snap); cmd != nil {
-		t.Fatal("simple mode rang bell")
+	if cmd := m.bellOnTurn(m.Snap); cmd == nil {
+		t.Error("expected bell on my turn in simple mode")
 	}
 	m.knownPlayers = map[string]bool{"p0": true}
 	m.Snap.Phase = string(game.PhaseLobby)
-	if cmd := m.bellOnJoin(m.Snap); cmd != nil {
-		t.Fatal("simple lobby rang bell")
+	if cmd := m.bellOnJoin(m.Snap); cmd == nil {
+		t.Error("expected bell for a lobby arrival in simple mode")
 	}
 }
 
@@ -157,5 +157,27 @@ func TestSimpleAcceptNoticeAndOverlayReturn(t *testing.T) {
 	m.applySnapshot(testSnap())
 	if m.simpleNotice != "" {
 		t.Fatal("stale notice")
+	}
+}
+
+func TestSimpleNextPlayer(t *testing.T) {
+	for _, tt := range []struct {
+		name, current, want string
+		direction           int
+	}{
+		{"forward", "p0", "→ next(Bob)", 1},
+		{"reverse wraps", "p0", "← next(Carol)", -1},
+		{"forward wraps", "p2", "→ next(You)", 1},
+		{"reverse", "p2", "← next(Bob)", -1},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			m := newModel("p0")
+			m.simple, m.Snap = true, testSnap()
+			m.Snap.Players = append(m.Snap.Players, game.PlayerView{ID: "p2", Name: "Carol", Connected: true})
+			m.Snap.CurrentPlayer, m.Snap.Direction = tt.current, tt.direction
+			if out := m.render(RenderOpts{Unicode: true}); !strings.Contains(out, tt.want) {
+				t.Fatalf("missing %q in %s", tt.want, out)
+			}
+		})
 	}
 }

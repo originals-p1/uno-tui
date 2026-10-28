@@ -224,10 +224,10 @@ func newGameFromDeckIDs(playerNames, playerIDs []string, deck []Card, cfg Config
 	}
 
 	top := draw[idx]
-	prefix := draw[:idx] // action cards skipped before the top card
-	rest := draw[idx+1:] // remainder after the top card
-	shuffle(prefix, rng) // reshuffle skipped action cards back into the pile
-	draw = append(append([]Card{}, prefix...), rest...)
+	// Mix skipped action cards into the entire remaining pile. Shuffling only
+	// the skipped prefix would bias the first draws toward action cards.
+	draw = append(draw[:idx], draw[idx+1:]...)
+	shuffle(draw, rng)
 
 	dir := 1
 	switch cfg.Game.InitialDir {

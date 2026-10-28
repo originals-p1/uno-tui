@@ -82,7 +82,11 @@ func (m Model) renderSimple(o RenderOpts) string {
 	}
 	roster := []string{}
 	for _, p := range s.Players {
-		item := fmt.Sprintf("%s:%d", m.simpleName(p.ID), p.CardCount)
+		name := m.simpleName(p.ID)
+		if m.inGame() && !m.Snap.RoundOver && m.Snap.WinnerPlayerID == "" && m.Snap.MatchWinnerPlayerID == "" && p.ID == s.CurrentPlayer {
+			name = "(" + name + ")"
+		}
+		item := fmt.Sprintf("%s:%d", name, p.CardCount)
 		if m.mode() == ModeLobby {
 			item = m.simpleName(p.ID) + ":not ready"
 			if p.Ready {
@@ -91,6 +95,9 @@ func (m Model) renderSimple(o RenderOpts) string {
 		}
 		if s.WinMode == game.WinScore {
 			item += fmt.Sprintf("(%d)", s.Scores[p.ID])
+		}
+		if p.UNO {
+			item += "[UNO!]"
 		}
 		if !p.Connected {
 			item += "[offline]"
@@ -105,6 +112,19 @@ func (m Model) renderSimple(o RenderOpts) string {
 		arrow = ">"
 		if s.Direction < 0 {
 			arrow = "<"
+		}
+	}
+	if m.inGame() && !s.RoundOver && s.WinnerPlayerID == "" && s.MatchWinnerPlayerID == "" {
+		for i, p := range s.Players {
+			if p.ID == s.CurrentPlayer {
+				step := 1
+				if s.Direction < 0 {
+					step = -1
+				}
+				next := (i + step + len(s.Players)) % len(s.Players)
+				arrow += " next(" + m.simpleName(s.Players[next].ID) + ")"
+				break
+			}
 		}
 	}
 	lines = append(lines, ansi.Wrap(strings.Join(roster, "  ")+" | "+arrow, width, " "))

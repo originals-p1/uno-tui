@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"math"
 	"math/rand"
+	"reflect"
 	"testing"
 )
 
@@ -213,14 +214,17 @@ func TestShuffle_UniformDistribution(t *testing.T) {
 	for i := range counts {
 		counts[i] = make([]int, n)
 	}
-	idx := make([]int, n)
+	deck := StandardDeck()
+	identity := make(map[string]int, n)
+	for i, c := range deck {
+		identity[c.ID] = i
+	}
+	shuffled := make([]Card, n)
 	for trial := 0; trial < trials; trial++ {
-		for i := range idx {
-			idx[i] = i
-		}
-		shuffleInts(idx, rand.NewSource(int64(trial)))
-		for pos, card := range idx {
-			counts[card][pos]++
+		copy(shuffled, deck)
+		shuffle(shuffled, rand.NewSource(int64(trial)))
+		for pos, card := range shuffled {
+			counts[identity[card.ID]][pos]++
 		}
 	}
 	// Chi-square over the whole matrix. Expected count per cell is
@@ -242,13 +246,87 @@ func TestShuffle_UniformDistribution(t *testing.T) {
 	}
 }
 
-// shuffleInts implements the same Fisher-Yates as shuffle(), operating on
-// integer indices so the position distribution can be measured directly
-// without reconstructing card identity.
-func shuffleInts(a []int, src rand.Source) {
-	r := rand.New(src)
-	for i := len(a) - 1; i > 0; i-- {
-		j := r.Intn(i + 1)
-		a[i], a[j] = a[j], a[i]
+// Removing the initial number card must not concentrate skipped action cards
+// at the front. Compare the first draw with the actual remaining composition.
+func TestStart_FirstDrawActionFrequency(t *testing.T) {
+	const trials = 4000
+	observed, expected := 0.0, 0.0
+	for seed := 0; seed < trials; seed++ {
+		g, err := NewGame([]string{"A", "B", "C", "D"}, rand.NewSource(int64(seed)))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsAction(g.DrawPile[0].Rank) {
+			observed++
+		}
+		actions := 0
+		for _, c := range g.DrawPile {
+			if IsAction(c.Rank) {
+				actions++
+			}
+		}
+		expected += float64(actions) / float64(len(g.DrawPile))
+	}
+	if math.Abs(observed-expected)/trials > 0.03 {
+		t.Fatalf("first draw action frequency %.3f, expected %.3f", observed/trials, expected/trials)
+	}
+}
+
+func TestStart_PureRandomHandsAndConservation(t *testing.T) {
+	for n := 2; n <= 4; n++ {
+		for _, size := range []int{5, 7, 10} {
+			for seed := int64(0); seed < 50; seed++ {
+				names := []string{"A", "B", "C", "D"}[:n]
+				cfg := DefaultConfig()
+				cfg.Game.InitialHandSize = size
+				deck := StandardDeck()
+				original := append([]Card(nil), deck...)
+				g, err := newGameFromDeckIDs(names, nil, deck, cfg, rand.NewSource(seed))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(deck, original) {
+					t.Fatal("input deck mutated")
+				}
+				again, err := newGameFromDeckIDs(names, nil, deck, cfg, rand.NewSource(seed))
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !reflect.DeepEqual(g.Players, again.Players) || !reflect.DeepEqual(g.DrawPile, again.DrawPile) || !reflect.DeepEqual(g.DiscardPile, again.DiscardPile) {
+					t.Fatal("same seed differs")
+				}
+				// Opening hands must remain a single unbiased shuffle dealt round-robin,
+				// without retries or redistribution based on hand strength.
+				shuffle(original, rand.NewSource(seed))
+				all := append([]Card(nil), g.DrawPile...)
+				all = append(all, g.DiscardPile...)
+				for seat, player := range g.Players {
+					if len(player.Hand) != size {
+						t.Fatal("wrong hand size")
+					}
+					for i, c := range player.Hand {
+						if c != original[i*n+seat] {
+							t.Fatal("opening hand was redistributed")
+						}
+					}
+					all = append(all, player.Hand...)
+				}
+				seen := map[string]bool{}
+				for _, c := range all {
+					if seen[c.ID] {
+						t.Fatalf("duplicate card %s", c.ID)
+					}
+					seen[c.ID] = true
+				}
+				if len(all) != len(deck) {
+					t.Fatal("card count changed")
+				}
+				for _, c := range deck {
+					if !seen[c.ID] {
+						t.Fatalf("missing card %s", c.ID)
+					}
+				}
+			}
+		}
 	}
 }
